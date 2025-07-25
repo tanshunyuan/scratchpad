@@ -5,7 +5,9 @@ import { z } from "zod";
 export const env = createEnv({
   server: {
     NODE_ENV: z.enum(['development', 'production']),
-    PORT: z.string().default('8000')
+    PORT: z.string().default('8000'),
+    TAVILY_API_KEY: z.string(),
+    OPENAI_API_KEY: z.string()
   },
 
   /**

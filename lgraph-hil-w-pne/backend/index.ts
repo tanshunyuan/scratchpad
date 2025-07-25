@@ -1,6 +1,7 @@
 import fastify from "fastify";
 import { env } from "../env.js";
-import { serializerCompiler, validatorCompiler } from "fastify-type-provider-zod";
+import { serializerCompiler, validatorCompiler, ZodTypeProvider } from "fastify-type-provider-zod";
+import { chatHandler, chatSchema } from "./src/chat-agent/index.js";
 
 const port = parseInt(env.PORT)
 const host = `localhost`
@@ -20,14 +21,14 @@ const server = fastify({
 server.setValidatorCompiler(validatorCompiler);
 server.setSerializerCompiler(serializerCompiler);
 
-// server.withTypeProvider<ZodTypeProvider>().route({
-//   method: "POST",
-//   url: '/chat-agent',
-//   schema: {
-//     body: chatAgentSchema,
-//   },
-//   handler: chatAgentHandler,
-// });
+server.withTypeProvider<ZodTypeProvider>().route({
+  method: "POST",
+  url: '/chat',
+  schema: {
+    body: chatSchema,
+  },
+  handler: chatHandler,
+});
 
 server.listen({ host, port }, (err, address) => {
   if (err) {
