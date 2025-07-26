@@ -1,38 +1,21 @@
 import { FastifyReply, FastifyRequest } from "fastify";
 import z from "zod";
 import { nanoid } from "nanoid";
-import { chatAgentWorkflow } from "./graph.js";
-import { MemorySaver, PregelOptions } from "@langchain/langgraph";
+import { chatAgent, chatAgentWorkflow } from "./graph.js";
+import { Command, MemorySaver, PregelOptions } from "@langchain/langgraph";
+import isEmpty from "lodash/isEmpty.js";
 
 export const chatSchema = z.object({
   threadId: z.string().optional(),
   message: z.string(),
-  // data: z
-  //   .object({
-  //     type: z.enum(["accept", "feedback"]),
-  //     feedback: z.string().optional(),
-  //   })
-  //   .optional()
-  //   .superRefine((data, ctx) => {
-  //     if (data?.type === "feedback") {
-  //       ctx.addIssue({
-  //         code: "custom",
-  //         message: "The `feedback` attribute is required if type is feedback",
-  //         path: ["feedback"],
-  //       });
-  //     }
-  //   }),
+  type: z.enum(["accept", "feedback"]).optional(),
 });
 export const chatHandler = async (
   req: FastifyRequest<{ Body: z.infer<typeof chatSchema> }>,
   res: FastifyReply,
 ) => {
   try {
-    const { threadId, message } = req.body;
-    const checkpointer = new MemorySaver();
-    const chatAgent = chatAgentWorkflow.compile({
-      checkpointer,
-    });
+    const { threadId, message, type } = req.body;
     if (!threadId) {
       const generatedThreadId = nanoid();
       const config = {
@@ -68,6 +51,32 @@ export const chatHandler = async (
       });
     } else {
       req.log.debug(`resuming a conversation: ${threadId}`);
+      const config = {
+        debug: true,
+        configurable: {
+          thread_id: threadId,
+        },
+      };
+      const state = await chatAgent.getState(config);
+      console.log(JSON.stringify(state, null, 2));
+      if (isEmpty(state.values)) {
+        return res.code(400).send({
+          error: `Chat thread not found. threadId: ${threadId}`,
+        });
+      }
+      const resumeCommand = new Command({
+        resume: {
+          action: {
+            type: type,
+            feedback: message,
+          },
+        },
+      });
+      const response = await chatAgent.invoke(resumeCommand, config);
+      return res.code(200).send({
+        threadId,
+        response: response.response,
+      });
     }
   } catch (err) {
     console.error(err);

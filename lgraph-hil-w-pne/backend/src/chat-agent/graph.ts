@@ -275,3 +275,8 @@ export const chatAgentWorkflow = new StateGraph(PlanExecuteState)
 // )) {
 //   console.log("event ==> ", JSON.stringify(event, null, 2));
 // }
+
+const checkpointer = new MemorySaver();
+export const chatAgent = chatAgentWorkflow.compile({
+  checkpointer,
+});
