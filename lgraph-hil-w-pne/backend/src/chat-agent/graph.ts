@@ -242,10 +242,11 @@ const humanReviewStep = (state: State): Command => {
       });
     }
     case "feedback": {
+      const finalfeedback = `${action.feedback}\n ${state.plan.join('\n')}`
       return new Command({
         goto: "planner",
         update: {
-          input: action.feedback,
+          input: finalfeedback,
           plan: [],
         },
       });
