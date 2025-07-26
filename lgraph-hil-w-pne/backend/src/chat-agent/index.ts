@@ -2,7 +2,7 @@ import { FastifyReply, FastifyRequest } from "fastify";
 import z from "zod";
 import { nanoid } from "nanoid";
 import { chatAgent } from "./graph.js";
-import { Command, MemorySaver, PregelOptions } from "@langchain/langgraph";
+import { Command } from "@langchain/langgraph";
 import isEmpty from "lodash/isEmpty.js";
 
 export const chatSchema = z.object({
@@ -106,7 +106,17 @@ export const chatResumeHandler = async (
       })
     }
     const response = await chatAgent.invoke(resumeCommand, config);
-    console.log('response ==> ', JSON.stringify(response, null, 2))
+    const resumeState = await chatAgent.getState(config)
+
+    if (resumeState.next.includes("human_review")) {
+      const task = state.tasks[0];
+      const interrupt = task.interrupts[0];
+      const interruptValue = interrupt.value;
+      return res.code(200).send({
+        threadId,
+        response: interruptValue,
+      });
+    }
     return res.code(200).send({
       threadId,
       response: response.response,
