@@ -1,7 +1,15 @@
 /**@see @link{https://v03.api.js.langchain.com/classes/_langchain_core.output_parsers_openai_tools.JsonOutputToolsParser.html} */
 import { JsonOutputToolsParser } from "@langchain/core/output_parsers/openai_tools";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
+import {
+  Annotation,
+  Command,
+  END,
+  interrupt,
+  MemorySaver,
+  START,
+  StateGraph,
+} from "@langchain/langgraph";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { ChatOpenAI } from "@langchain/openai";
 import { TavilySearch } from "@langchain/tavily";
@@ -200,25 +208,70 @@ const shouldEnd = (state: State) => {
   return state.response ? "end" : "continue";
 };
 
-const workflow = new StateGraph(PlanExecuteState)
+const humanReviewStep = (state: State): Command => {
+  const result = interrupt<
+    {
+      question: string;
+      plan: State["plan"];
+    },
+    {
+      action: {
+        type: "accept" | "feedback";
+        feedback?: string;
+      };
+    }
+  >({
+    question: "Is the plan ok? (accept / feedback)",
+    plan: state.plan,
+  });
+
+  const { action } = result;
+
+  switch (action.type) {
+    case "accept": {
+      return new Command({
+        goto: "agent",
+      });
+    }
+    case "feedback": {
+      return new Command({
+        goto: "planner",
+        update: {
+          input: action.feedback,
+          plan: [],
+        },
+      });
+    }
+    default: {
+      throw new Error("Invalid action");
+    }
+  }
+};
+
+export const chatAgentWorkflow = new StateGraph(PlanExecuteState)
   .addNode("planner", planStep)
+  .addNode("human_review", humanReviewStep, {
+    ends: ["planner", "agent"],
+  })
   .addNode("agent", executeStep)
   .addNode("replan", replanStep)
   .addEdge(START, "planner")
-  .addEdge("planner", "agent")
+  .addEdge("planner", "human_review")
   .addEdge("agent", "replan")
   .addConditionalEdges("replan", shouldEnd, {
     continue: "agent", // go back to the agent to find stuff
     end: END, // end it!
   });
 
-const app = workflow.compile();
-
-const config = { recursionLimit: 50 };
-const inputs = {
-  input: "what is the hometown of the 2024 Australian open winner?",
-};
-
-for await (const event of await app.stream(inputs, config)) {
-  console.log("event ==> ", JSON.stringify(event, null, 2));
-}
+// for await (const event of await app.stream(
+//   {
+//     input: "What is the hometown of 2024 Australian open winner?",
+//   },
+//   {
+//     configurable: {
+//       thread_id: "nani_id",
+//     },
+//   },
+// )) {
+//   console.log("event ==> ", JSON.stringify(event, null, 2));
+// }
