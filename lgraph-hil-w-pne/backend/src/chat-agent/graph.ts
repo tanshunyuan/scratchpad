@@ -98,14 +98,14 @@ const responseObject = z.object({
 });
 
 /**@description tool will not be invoked, instead it serves as a contract / guides the llm to output the response in a certain format */
-const responseTool = tool(() => {}, {
+const responseTool = tool(() => { }, {
   name: "response",
   description: "Respond to the user.",
   schema: responseObject,
 });
 
 /**@description tool will not be invoked, instead it serves as a contract / guides the llm to output the plan in a certain format */
-const planTool = tool(() => {}, {
+const planTool = tool(() => { }, {
   name: "plan",
   description: "This tool is used to plan the steps to follow.",
   schema: planObject,
@@ -148,6 +148,7 @@ const replanner = replannerPrompt.pipe(replannerModel).pipe(parser);
  * @param state - passed in when using .addNode
  */
 const planStep = async (state: State): StateResponse => {
+  console.log(`at planStep`)
   // `objective` will be passed to `plannerPrompt`
   const plan = await planner.invoke({ objective: state.input });
   // plan.steps is typed from `plannerObject`
@@ -161,6 +162,7 @@ const executeStep = async (
   state: State,
   config?: RunnableConfig,
 ): StateResponse => {
+  console.log(`at executeStep`)
   // grab the first step in the plan?
   const task = state.plan[0];
 
@@ -178,6 +180,7 @@ const executeStep = async (
 };
 
 const replanStep = async (state: State): StateResponse => {
+  console.log(`at replanStep`)
   // the parameters in replanner.invoke is defined in `replannerPrompt`
   const output = await replanner.invoke({
     input: state.input,
@@ -197,6 +200,8 @@ const replanStep = async (state: State): StateResponse => {
     };
   };
 
+  console.log(`replanStep.toolCall ==> ${JSON.stringify(toolCall, null, 2)}`)
+
   if (toolCall.type === "response") {
     return { response: toolCall.args?.response };
   }
@@ -209,6 +214,7 @@ const shouldEnd = (state: State) => {
 };
 
 const humanReviewStep = (state: State): Command => {
+  console.log(`at humanReviewStep`)
   const result = interrupt<
     {
       question: string;
@@ -226,6 +232,8 @@ const humanReviewStep = (state: State): Command => {
   });
 
   const { action } = result;
+
+  console.log(`humanReviewStep.result ==> ${JSON.stringify(action, null, 2)}`)
 
   switch (action.type) {
     case "accept": {
@@ -248,7 +256,7 @@ const humanReviewStep = (state: State): Command => {
   }
 };
 
-export const chatAgentWorkflow = new StateGraph(PlanExecuteState)
+const chatAgentWorkflow = new StateGraph(PlanExecuteState)
   .addNode("planner", planStep)
   .addNode("human_review", humanReviewStep, {
     ends: ["planner", "agent"],
@@ -262,19 +270,6 @@ export const chatAgentWorkflow = new StateGraph(PlanExecuteState)
     continue: "agent", // go back to the agent to find stuff
     end: END, // end it!
   });
-
-// for await (const event of await app.stream(
-//   {
-//     input: "What is the hometown of 2024 Australian open winner?",
-//   },
-//   {
-//     configurable: {
-//       thread_id: "nani_id",
-//     },
-//   },
-// )) {
-//   console.log("event ==> ", JSON.stringify(event, null, 2));
-// }
 
 const checkpointer = new MemorySaver();
 export const chatAgent = chatAgentWorkflow.compile({

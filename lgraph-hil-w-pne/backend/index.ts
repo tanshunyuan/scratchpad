@@ -5,7 +5,12 @@ import {
   validatorCompiler,
   ZodTypeProvider,
 } from "fastify-type-provider-zod";
-import { chatHandler, chatSchema } from "./src/chat-agent/index.js";
+import {
+  chatHandler,
+  chatResumeHandler,
+  chatResumeSchema,
+  chatSchema,
+} from "./src/chat-agent/index.js";
 
 const port = parseInt(env.PORT);
 const host = `localhost`;
@@ -33,6 +38,15 @@ server.withTypeProvider<ZodTypeProvider>().route({
     body: chatSchema,
   },
   handler: chatHandler,
+});
+
+server.withTypeProvider<ZodTypeProvider>().route({
+  method: "POST",
+  url: "/chat/resume",
+  schema: {
+    body: chatResumeSchema,
+  },
+  handler: chatResumeHandler,
 });
 
 server.listen({ host, port }, (err, address) => {
