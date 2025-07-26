@@ -69,7 +69,7 @@ export const chatResumeHandler = async (
     const { threadId, message, type } = req.body;
     req.log.debug(`resuming a conversation: ${threadId}`);
     const config = {
-      recursionLimit: 25,
+      recursionLimit: 35,
       debug: true,
       configurable: {
         thread_id: threadId,
