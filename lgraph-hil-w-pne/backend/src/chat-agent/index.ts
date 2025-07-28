@@ -2,8 +2,10 @@ import { FastifyReply, FastifyRequest } from "fastify";
 import z from "zod";
 import { nanoid } from "nanoid";
 import { chatAgent } from "./graph.js";
-import { Command } from "@langchain/langgraph";
-import isEmpty from "lodash/isEmpty.js";
+import { Command, LangGraphRunnableConfig } from "@langchain/langgraph";
+import isEmpty from "lodash-es/isEmpty.js";
+import { RunnableConfig } from "@langchain/core/runnables";
+import { langfuseHandler } from "../utils/langfuse.js";
 
 export const chatSchema = z.object({
   message: z.string(),
@@ -15,11 +17,11 @@ export const chatHandler = async (
   try {
     const { message } = req.body;
     const generatedThreadId = nanoid();
-    const config = {
-      debug: true,
+    const config: LangGraphRunnableConfig = {
       configurable: {
         thread_id: generatedThreadId,
       },
+      callbacks: [langfuseHandler]
     };
 
     req.log.debug(`starting a new conversation: ${generatedThreadId}`);
@@ -68,12 +70,12 @@ export const chatResumeHandler = async (
   try {
     const { threadId, message, type } = req.body;
     req.log.debug(`resuming a conversation: ${threadId}`);
-    const config = {
+    const config: LangGraphRunnableConfig = {
       recursionLimit: 35,
-      debug: true,
       configurable: {
         thread_id: threadId,
       },
+      callbacks: [langfuseHandler]
     };
     console.log('resume config ==> ', JSON.stringify(config, null, 2))
     const state = await chatAgent.getState(config);

@@ -18,6 +18,7 @@ import z from "zod";
 import { tool } from "@langchain/core/tools";
 import { Runnable, RunnableConfig } from "@langchain/core/runnables";
 import { HumanMessage } from "@langchain/core/messages";
+import isEmpty from 'lodash-es/isEmpty.js';
 
 /** @description state for the entire graph */
 const PlanExecuteState = Annotation.Root({
@@ -29,7 +30,8 @@ const PlanExecuteState = Annotation.Root({
   plan: Annotation<string[]>({
     reducer: (x, y) => y ?? x ?? [],
   }),
-  /** @description
+  /** 
+   * @description
    * a list of past steps that've been executed
    * [string, string]
    * - first element is the instruction
@@ -41,6 +43,10 @@ const PlanExecuteState = Annotation.Root({
   /** @description response from the llm */
   response: Annotation<string>({
     reducer: (x, y) => y ?? x,
+  }),
+  /**@description feedback from the user */
+  feedback: Annotation<string>({
+    reducer: (x, y) => y ?? x ?? "",
   }),
 });
 
@@ -64,18 +70,6 @@ const agentExecutor = createReactAgent({
   tools: [webSearchTool],
 });
 
-/**
- * @description
- * ChatPromptTemplate convience fn to write a prompt, helps with validation and string interpolation.
- */
-const plannerPrompt = ChatPromptTemplate.fromTemplate(`
-For the given objective, come up with a simple step by step plan. \
-This plan should involve individual tasks, that if executed correctly will yield the correct answer. Do not add any superfluous steps. \
-The result of the final step should be the final answer. Make sure that each step has all the information needed - do not skip steps.
-
-{objective}
-  `);
-
 /**@description schema to guide the llm to return a structured output */
 const planObject = z.object({
   steps: z
@@ -88,10 +82,6 @@ const plannerModel = new ChatOpenAI({
   model: "gpt-4-0125-preview",
 }).withStructuredOutput(planObject);
 
-/** @description
- * comes up with an INITIAL plan for the agent to perform a search
- */
-const planner = plannerPrompt.pipe(plannerModel);
 
 const responseObject = z.object({
   response: z.string().describe("Response to user."),
@@ -149,11 +139,54 @@ const replanner = replannerPrompt.pipe(replannerModel).pipe(parser);
  */
 const planStep = async (state: State): StateResponse => {
   console.log(`at planStep`)
-  // `objective` will be passed to `plannerPrompt`
-  const plan = await planner.invoke({ objective: state.input });
-  console.log(`planStep.plan ==> ${JSON.stringify(plan, null, 2)}`)
-  // plan.steps is typed from `planObject`
-  return { plan: plan.steps };
+
+  /**
+   * @description
+   * ChatPromptTemplate convience fn to write a prompt, helps with validation and string interpolation.
+   */
+  const plannerPrompt = ChatPromptTemplate.fromTemplate(`
+  For the given objective, come up with a simple step by step plan. \
+  This plan should involve individual tasks, that if executed correctly will yield the correct answer. Do not add any superfluous steps. \
+  The result of the final step should be the final answer. Make sure that each step has all the information needed - do not skip steps.
+
+  {objective}
+  `);
+
+  const revisePlannerPrompt = ChatPromptTemplate.fromTemplate(`
+  Here's the current step by step plan. \
+  {currentplan}\
+
+  Here's what the user had to say about it: {feedback}.
+
+  Based on what the user said, revise the plan accordingly. Remember that the plan should involve individual tasks, that if executed correctly will yield the correct answer. Do not add any superfluous steps. \
+  The result of the final step should be the final answer. Make sure that each step has all the information needed - do not skip steps.
+  `)
+
+  const isFeedbackEmpty = isEmpty(state.feedback)
+
+  if (isFeedbackEmpty) {
+    /** 
+     * @description
+     * comes up with an INITIAL plan for the agent to perform a search
+     */
+    const planner = plannerPrompt.pipe(plannerModel);
+
+    // `objective` will be passed to `plannerPrompt`
+    const plan = await planner.invoke({ objective: state.input });
+    // plan.steps is typed from `planObject`
+    return { plan: plan.steps };
+  } else {
+    /** 
+     * @description
+     * comes up with a REVISED plan for the agent to perform a search
+     */
+    const planner = revisePlannerPrompt.pipe(plannerModel);
+    const plan = await planner.invoke({
+      currentplan: state.plan,
+      feedback: state.feedback,
+    });
+    return { plan: plan.steps };
+  }
 };
 
 /**
@@ -164,7 +197,8 @@ const executeStep = async (
   config?: RunnableConfig,
 ): StateResponse => {
   console.log(`at executeStep`)
-  // grab the first step in the plan?
+
+  // grab and execute on the first step in the plan as it's sequential
   const task = state.plan[0];
 
   // mimic human input programatically
@@ -196,7 +230,9 @@ const replanStep = async (state: State): StateResponse => {
   const toolCall = output[0] as {
     type: string;
     args?: {
+      /**@description it's response when it's final */
       response: string;
+      /**@description it's steps when there are still steps to go */
       steps: string[];
     };
   };
@@ -239,12 +275,15 @@ const humanReviewStep = (state: State): Command => {
     case "accept": {
       return new Command({
         goto: "agent",
+        update: {
+          feedback: "" // reset the feedback
+        }
       });
     }
     case "feedback": {
       const finalFeedback = `
       For the given plan:
-      ${state.plan}
+      ${state.plan.join('\n')}
 
       Here's the feedback from the user:
       ${action.feedback}
@@ -255,8 +294,7 @@ const humanReviewStep = (state: State): Command => {
       return new Command({
         goto: "planner",
         update: {
-          input: finalFeedback,
-          plan: [],
+          feedback: finalFeedback
         },
       });
     }

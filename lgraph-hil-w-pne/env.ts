@@ -7,7 +7,9 @@ export const env = createEnv({
     NODE_ENV: z.enum(['development', 'production']),
     PORT: z.string().default('8000'),
     TAVILY_API_KEY: z.string(),
-    OPENAI_API_KEY: z.string()
+    OPENAI_API_KEY: z.string(),
+    LANGFUSE_SECRET_KEY: z.string(),
+    LANGFUSE_PUBLIC_KEY: z.string()
   },
 
   /**
