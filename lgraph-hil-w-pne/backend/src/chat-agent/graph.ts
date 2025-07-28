@@ -281,20 +281,10 @@ const humanReviewStep = (state: State): Command => {
       });
     }
     case "feedback": {
-      const finalFeedback = `
-      For the given plan:
-      ${state.plan.join('\n')}
-
-      Here's the feedback from the user:
-      ${action.feedback}
-
-      Revise or update the plan accordingly.
-      `
-      console.log(`humanReviewStep.feedback.finalFeedback ==> ${JSON.stringify(finalFeedback, null, 2)}`)
       return new Command({
         goto: "planner",
         update: {
-          feedback: finalFeedback
+          feedback: action.feedback
         },
       });
     }
