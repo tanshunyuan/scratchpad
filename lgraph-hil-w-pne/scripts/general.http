@@ -6,7 +6,7 @@ POST {{hostname}}/chat
 Content-Type: application/json
 
 {
-  "message": "what is the hometown of the kilian jornet"
+  "message": "what is the hometown of kilian jornet?"
 }
 ###
 

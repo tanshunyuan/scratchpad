@@ -115,7 +115,7 @@ Your original plan was this:
 You have currently done the follow steps:
 {pastSteps}
 
-Update your plan accordingly. If no more steps are needed and you can return to the user, then respond with that and use the 'response' function.
+Update your plan accordingly. If the list of plan is empty or no more steps are needed, you can return to the user using the 'response' function.
 Otherwise, fill out the plan.
 Only add steps to the plan that still NEED to be done. Do not return previously done steps as part of the plan.
   `);
@@ -159,7 +159,7 @@ const planStep = async (state: State): StateResponse => {
   Here's what the user had to say about it: {feedback}.
 
   Based on what the user said, revise the plan accordingly. Remember that the plan should involve individual tasks, that if executed correctly will yield the correct answer. Do not add any superfluous steps. \
-  The result of the final step should be the final answer. Make sure that each step has all the information needed - do not skip steps.
+  Most importantly, the result of the final step should be the final answer. Make sure that each step has all the information needed - do not skip steps.
   `)
 
   const isFeedbackEmpty = isEmpty(state.feedback)
