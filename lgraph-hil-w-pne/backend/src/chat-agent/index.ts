@@ -109,7 +109,7 @@ export const chatResumeHandler = async (
     const resumeState = await chatAgent.getState(config)
 
     if (resumeState.next.includes("human_review")) {
-      const task = state.tasks[0];
+      const task = resumeState.tasks[0];
       const interrupt = task.interrupts[0];
       const interruptValue = interrupt.value;
       return res.code(200).send({
@@ -121,9 +121,6 @@ export const chatResumeHandler = async (
       threadId,
       response: response.response,
     });
-    // return res.code(200).send({
-    //   threadId
-    // })
   } catch (err) {
     console.error(err);
     return res.code(500).send({

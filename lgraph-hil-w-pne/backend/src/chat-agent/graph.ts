@@ -151,7 +151,8 @@ const planStep = async (state: State): StateResponse => {
   console.log(`at planStep`)
   // `objective` will be passed to `plannerPrompt`
   const plan = await planner.invoke({ objective: state.input });
-  // plan.steps is typed from `plannerObject`
+  console.log(`planStep.plan ==> ${JSON.stringify(plan, null, 2)}`)
+  // plan.steps is typed from `planObject`
   return { plan: plan.steps };
 };
 
@@ -215,6 +216,7 @@ const shouldEnd = (state: State) => {
 
 const humanReviewStep = (state: State): Command => {
   console.log(`at humanReviewStep`)
+  console.log(`humanReviewStep.state.plan ==> ${JSON.stringify(state.plan, null, 2)}`)
   const result = interrupt<
     {
       question: string;
@@ -233,8 +235,6 @@ const humanReviewStep = (state: State): Command => {
 
   const { action } = result;
 
-  console.log(`humanReviewStep.result ==> ${JSON.stringify(action, null, 2)}`)
-
   switch (action.type) {
     case "accept": {
       return new Command({
@@ -242,11 +242,20 @@ const humanReviewStep = (state: State): Command => {
       });
     }
     case "feedback": {
-      const finalfeedback = `${action.feedback}\n ${state.plan.join('\n')}`
+      const finalFeedback = `
+      For the given plan:
+      ${state.plan}
+
+      Here's the feedback from the user:
+      ${action.feedback}
+
+      Revise or update the plan accordingly.
+      `
+      console.log(`humanReviewStep.feedback.finalFeedback ==> ${JSON.stringify(finalFeedback, null, 2)}`)
       return new Command({
         goto: "planner",
         update: {
-          input: finalfeedback,
+          input: finalFeedback,
           plan: [],
         },
       });
