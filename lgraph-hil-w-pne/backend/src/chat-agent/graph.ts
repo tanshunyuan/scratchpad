@@ -13,7 +13,7 @@ import {
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { ChatOpenAI } from "@langchain/openai";
 import { TavilySearch } from "@langchain/tavily";
-import { env } from "../../../env.js";
+import { env } from "../../env.js";
 import z from "zod";
 import { tool } from "@langchain/core/tools";
 import { Runnable, RunnableConfig } from "@langchain/core/runnables";

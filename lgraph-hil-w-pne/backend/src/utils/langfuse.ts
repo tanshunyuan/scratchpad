@@ -1,5 +1,5 @@
 import { CallbackHandler } from "langfuse-langchain";
-import { env } from "../../../env.js";
+import { env } from "../../env.js";
  
 // Initialize Langfuse callback handler
 export const langfuseHandler = new CallbackHandler({

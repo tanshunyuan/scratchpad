@@ -1,5 +1,5 @@
 import fastify from "fastify";
-import { env } from "../env.js";
+import { env } from "./env.js";
 import {
   serializerCompiler,
   validatorCompiler,
