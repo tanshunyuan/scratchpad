@@ -11,6 +11,7 @@ import {
   chatResumeSchema,
   chatSchema,
 } from "./src/chat-agent/index.js";
+import cors from '@fastify/cors'
 
 const port = parseInt(env.PORT);
 const host = `localhost`;
@@ -26,7 +27,11 @@ const server = fastify({
       },
     },
   },
-});
+})
+  .register(cors, {
+    origin: 'http://localhost:3000',
+    methods: ['GET', 'POST', 'PUT', 'DELETE']
+  })
 
 server.setValidatorCompiler(validatorCompiler);
 server.setSerializerCompiler(serializerCompiler);

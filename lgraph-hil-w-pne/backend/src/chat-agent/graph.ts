@@ -265,7 +265,7 @@ const humanReviewStep = (state: State): Command => {
       };
     }
   >({
-    question: "Is the plan ok? (accept / feedback)",
+    question: "Here are the steps that will be taken to resolve your query.",
     plan: state.plan,
   });
 
