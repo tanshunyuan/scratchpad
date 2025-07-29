@@ -2,7 +2,7 @@
 
 ### 
 # @name newchat
-POST {{hostname}}/chat
+POST {{hostname}}/invoke/chat
 Content-Type: application/json
 
 {
@@ -13,7 +13,7 @@ Content-Type: application/json
 @threadId={{newchat.response.body.$.threadId}}
 
 ###
-POST {{hostname}}/chat/resume
+POST {{hostname}}/invoke/chat/resume
 Content-Type: application/json
 
 {
@@ -23,7 +23,7 @@ Content-Type: application/json
 ###
 
 ###
-POST {{hostname}}/chat/resume
+POST {{hostname}}/invoke/chat/resume
 Content-Type: application/json
 
 {

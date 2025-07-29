@@ -33,7 +33,7 @@ server.setSerializerCompiler(serializerCompiler);
 
 server.withTypeProvider<ZodTypeProvider>().route({
   method: "POST",
-  url: "/chat",
+  url: "/invoke/chat",
   schema: {
     body: chatSchema,
   },
@@ -42,7 +42,7 @@ server.withTypeProvider<ZodTypeProvider>().route({
 
 server.withTypeProvider<ZodTypeProvider>().route({
   method: "POST",
-  url: "/chat/resume",
+  url: "/invoke/chat/resume",
   schema: {
     body: chatResumeSchema,
   },
