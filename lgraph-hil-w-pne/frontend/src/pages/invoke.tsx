@@ -38,16 +38,32 @@ const startChatMutation = () => useMutation({
     return response
   },
 })
+
+const resumeChatMutation = (outerArgs: { threadId: string | null }) => useMutation({
+  mutationFn: async (args: FeedbackSchema) => {
+    if (isEmpty(outerArgs.threadId)) throw new Error('Niet threadId')
+    const response = await axios.post<{
+      threadId: string,
+      response: {
+        question: string,
+        plan: string[]
+      } | string
+    }>(
+      'http://localhost:8000/invoke/chat/resume',
+      {
+        threadId: outerArgs.threadId,
+        type: args.type,
+        ...(args.feedback ? { message: args.feedback } : {})
+      }
+    )
+    return response
+  },
+})
 export default function InvokePage() {
   const [threadId, setThreadId] = useState<null | string>(null)
-  const [messageState, setMessageState] = useState<{ role: 'user' | 'assistant', content: string, timestamp: number }[]>([
-    // {
-    //   role: 'user',
-    //   content: 'hi',
-    //   timestamp: Date.now()
-    // },
-    // { role: 'assistant', content: 'bye \n\n hahaha', timestamp: Date.now() + 1 }
-  ])
+  const [messageState, setMessageState] = useState<{ role: 'user' | 'assistant', content: string, timestamp: number }[]>([])
+  const [toggleFeedback, setToggleFeedback] = useState(false)
+
   const schemaForm = useForm<Schema>({
     resolver: zodResolver(schema)
   })
@@ -57,13 +73,15 @@ export default function InvokePage() {
   })
 
   const { mutate: startChatMutate, isPending: startChatPending } = startChatMutation()
+  const { mutate: resumeChatMutate, isPending: resumeChatPending } = resumeChatMutation({ threadId })
 
   const schemaOnSubmit = (data: Schema) => {
+    setToggleFeedback(false)
+    feedbackSchemaForm.reset()
     if (isEmpty(threadId)) {
       setMessageState((prev) => {
         return [...prev, { role: 'user', content: data.message, timestamp: Date.now() }]
       })
-      schemaForm.resetField('message')
       startChatMutate({ message: data.message }, {
         onSuccess: (data) => {
           setThreadId(data.data.threadId)
@@ -73,19 +91,54 @@ export default function InvokePage() {
             { role: 'assistant', content: data.data.response.plan.join('\n\n'), timestamp: Date.now() }
             ]
           })
+        },
+        onSettled: () => {
+          schemaForm.reset()
         }
       })
     }
   }
 
   const feedbackSchemaOnSubmit = (data: FeedbackSchema) => {
+    console.log({ data })
+    if (isEmpty(threadId)) console.log('cannot no threadId')
 
+    if (data.feedback) {
+      console.log('set le feedback')
+      setMessageState((prev) => {
+        return [...prev, { role: 'user', content: data.feedback!, timestamp: Date.now() }]
+      })
+    }
+
+    resumeChatMutate({
+      type: data.type,
+      feedback: data.feedback
+    }, {
+      onSuccess: (data) => {
+        setMessageState(prev => {
+          if (typeof data.data.response === 'string') {
+            return [...prev,
+            { role: 'assistant', content: data.data.response, timestamp: Date.now() },
+            ]
+          } else {
+            return [...prev,
+            { role: 'assistant', content: data.data.response.question, timestamp: Date.now() },
+            { role: 'assistant', content: data.data.response.plan.join('\n\n'), timestamp: Date.now() }
+            ]
+          }
+        })
+      },
+      onSettled: () => {
+        setToggleFeedback(false)
+        feedbackSchemaForm.reset()
+      }
+    })
   }
 
-  const isLoading = startChatPending
+  const isLoading = startChatPending || resumeChatPending
 
   return <main className="min-h-screen p-8 flex flex-col">
-    <h1>Invoking stuff</h1>
+    <h1>Using `.invoke` method</h1>
     <div className="flex-1 flex flex-col">
       <div>
         {messageState.sort((a, b) => a.timestamp - b.timestamp).map((state, idx) => {
@@ -99,9 +152,9 @@ export default function InvokePage() {
               <p className="font-bold">Assistant</p>
               <ReactMarkdown>{state.content}</ReactMarkdown>
             </div> : null}
-            {isLoading ? <p>loading...</p> : null}
           </div>
         })}
+        {isLoading ? <p>loading...</p> : null}
       </div>
 
       <div className="mt-auto">
@@ -123,10 +176,21 @@ export default function InvokePage() {
             </form>
             {schemaForm.formState.errors.message?.message}
           </> : <>
-            <form className="flex items-center space-x-4" >
-              <button onClick={() => feedbackSchemaOnSubmit({ type: 'accept' })} {...feedbackSchemaForm.register('type')}>Approve</button>
-            </form>
+
+            {!toggleFeedback ?
+              <div className="flex items-center space-x-4" >
+                <button onClick={() => feedbackSchemaOnSubmit({ type: 'accept' })} {...feedbackSchemaForm.register('type')}>Approve</button>
+                <button onClick={() => setToggleFeedback(true)}>Feedback</button>
+              </div> : <form onSubmit={feedbackSchemaForm.handleSubmit(feedbackSchemaOnSubmit)}>
+                <textarea className="border border-slate-300 px-4 py-2 rounded-lg" {...feedbackSchemaForm.register('feedback')} />
+                <div className="space-x-4" >
+                  <button onClick={() => setToggleFeedback(false)}>Cancel</button>
+                  <button type="submit" {...feedbackSchemaForm.register('type')} onClick={() => feedbackSchemaForm.setValue('type', 'feedback')}>Submit</button>
+                </div>
+              </form>
+            }
             {feedbackSchemaForm.formState.errors.feedback?.message}
+            {feedbackSchemaForm.formState.errors.type?.message}
           </>
         }
       </div>

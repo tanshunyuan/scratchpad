@@ -115,10 +115,12 @@ Your original plan was this:
 You have currently done the follow steps:
 {pastSteps}
 
-Update your plan accordingly. If the list of plan is empty or no more steps are needed, you can return to the user using the 'response' function.
-Otherwise, fill out the plan.
-Only add steps to the plan that still NEED to be done. Do not return previously done steps as part of the plan.
+Update your plan accordingly. If no further steps are required and you're ready to respond to the user, then proceed with the 'response' function
+Otherwise, fill out the plan.  
+Only add steps to the plan that still NEED to be done. Do not add any superfluous steps. \
+Do not return previously done steps as part of the plan.
   `);
+// Lastly, if the incoming list of plan is empty remember to return to the user using the 'response' function.
 
 const parser = new JsonOutputToolsParser();
 
@@ -150,6 +152,8 @@ const planStep = async (state: State): StateResponse => {
   The result of the final step should be the final answer. Make sure that each step has all the information needed - do not skip steps.
 
   {objective}
+
+  Remember, the result of the final step should be the final answer!
   `);
 
   const revisePlannerPrompt = ChatPromptTemplate.fromTemplate(`
@@ -182,7 +186,7 @@ const planStep = async (state: State): StateResponse => {
      */
     const planner = revisePlannerPrompt.pipe(plannerModel);
     const plan = await planner.invoke({
-      currentplan: state.plan,
+      currentplan: state.plan.join('\n'),
       feedback: state.feedback,
     });
     return { plan: plan.steps };
@@ -216,6 +220,14 @@ const executeStep = async (
 
 const replanStep = async (state: State): StateResponse => {
   console.log(`at replanStep`)
+  console.log(`replanner invoke args: ${JSON.stringify({
+    input: state.input,
+    plan: state.plan.join("\n"),
+    pastSteps: state.pastSteps
+      .map(([step, result]) => `${step}: ${result}`)
+      .join("\n"),
+  }, null, 2)}`)
+
   // the parameters in replanner.invoke is defined in `replannerPrompt`
   const output = await replanner.invoke({
     input: state.input,

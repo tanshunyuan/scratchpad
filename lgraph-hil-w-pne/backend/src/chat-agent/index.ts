@@ -70,6 +70,7 @@ export const chatResumeHandler = async (
   try {
     const { threadId, message, type } = req.body;
     req.log.debug(`resuming a conversation: ${threadId}`);
+    req.log.debug(`the body ${JSON.stringify(req.body, null, 2)}`)
     const config: LangGraphRunnableConfig = {
       recursionLimit: 35,
       configurable: {
