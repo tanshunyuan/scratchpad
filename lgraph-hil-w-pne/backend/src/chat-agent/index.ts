@@ -118,11 +118,13 @@ export const chatResumeHandler = async (
       return res.code(200).send({
         threadId,
         response: interruptValue,
+        final: false
       });
     }
     return res.code(200).send({
       threadId,
       response: response.response,
+      final: true
     });
   } catch (err) {
     console.error(err);

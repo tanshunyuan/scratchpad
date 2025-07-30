@@ -118,6 +118,7 @@ You have currently done the follow steps:
 Update your plan accordingly. If no further steps are required and you're ready to respond to the user, then proceed with the 'response' function
 Otherwise, fill out the plan.  
 Only add steps to the plan that still NEED to be done. Do not add any superfluous steps. \
+Do not add extra steps that'll search up items that is not relavent to the plan. \
 Do not return previously done steps as part of the plan.
   `);
 // Lastly, if the incoming list of plan is empty remember to return to the user using the 'response' function.
