@@ -17,7 +17,7 @@ POST {{hostname}}/stream/chat/resume
 Content-Type: application/json
 
 {
-  "threadId": "RFJ9HUQD-BnpAvZ432NBH",
+  "threadId": "3AOf66g311Iy8lKeyS6xr",
   "type": "accept"
 }
 ###
@@ -27,7 +27,7 @@ POST {{hostname}}/stream/chat/resume
 Content-Type: application/json
 
 {
-  "threadId": "{{threadId}}",
+  "threadId": "amNBqH3VNcLBYZyh1lhYy",
   "type": "feedback",
   "message": "The plan is too long, come up with a shorter plan"
 }

@@ -15,6 +15,11 @@ const startChatSchema = z.object({
 })
 type StartChatSchema = z.infer<typeof startChatSchema>
 
+const resumeChatSchema = z.object({
+  type: z.enum(['accept', 'feedback']),
+  feedback: z.string().optional()
+})
+type ResumeChatSchema = z.infer<typeof resumeChatSchema>
 
 export default function StreamPage() {
   const [threadId, setThreadId] = useState<null | string>(null)
@@ -26,27 +31,42 @@ export default function StreamPage() {
     resolver: zodResolver(startChatSchema)
   })
 
+  const resumeChatForm = useForm<ResumeChatSchema>({
+    resolver: zodResolver(resumeChatSchema)
+  })
+
   const startChat = useChat({
     api: 'http://localhost:8000/stream/chat',
-    onResponse: (response) => {
-      console.log(`startChat.onResponse.response ==> `, response)
-      // setThreadId(response.body.data.threadId)
-      // setMessagesHistory(prev => {
-      //   return [...prev,
-      //   { role: 'assistant', content: data.data.response.question, timestamp: Date.now() },
-      //   { role: 'assistant', content: data.data.response.plan.join('\n\n'), timestamp: Date.now() }
-      //   ]
-      // })
-    },
-    onFinish: (message) => {
-      console.log(`startChat.onFinish.message ==> `, message)
-    },
+    // onResponse: (response) => {
+    //   console.log(`startChat.onResponse.response ==> `, response)
+    // },
+    // onFinish: (message) => {
+    //   console.log(`startChat.onFinish.message ==> `, message)
+    // },
     onError: (error) => {
       console.log(`startChat.onError.error ==> `, error)
     },
   })
 
+  const resumeChat = useChat({
+    api: 'http://localhost:8000/stream/chat/resume',
+    // onResponse: (response) => {
+    //   console.log(`startChat.onResponse.response ==> `, response)
+    // },
+    onFinish: (message) => {
+      resetResumeChat()
+    },
+    onError: (error) => {
+      console.log(`resumeChat.onError.error ==> `, error)
+    },
+  })
+
+
   const resetStartChat = () => startChatForm.reset()
+  const resetResumeChat = () => {
+    setToggleFeedback(false)
+    resumeChatForm.reset()
+  }
 
   const startChatOnSubmit = (data: StartChatSchema) => {
     if (!isEmpty(threadId)) throw new Error(`Cannot start a new chat with an existing threadId!`);
@@ -68,14 +88,31 @@ export default function StreamPage() {
     )
   }
 
+  const resumeChatOnSubmit = (data: ResumeChatSchema) => {
+    if (isEmpty(threadId)) throw new Error(`Cannot resume a chat without a threadId!`);
+
+    if (data.feedback) {
+      console.log('adding user feedback to chat...')
+      setMessagesHistory((prev) => {
+        return [...prev, { role: 'user', content: data.feedback!, timestamp: Date.now() }]
+      })
+    }
+
+    resumeChat.append({
+      role: 'user',
+      content: data.type
+    },
+      {
+        body: {
+          threadId,
+          type: data.type,
+          ...(data.feedback ? { message: data.feedback } : {})
+        }
+      }
+    )
+  }
+
   useEffect(() => {
-    // setThreadId(startChat.body.data.threadId)
-    // setMessagesHistory(prev => {
-    //   return [...prev,
-    //   { role: 'assistant', content: data.data.response.question, timestamp: Date.now() },
-    //   { role: 'assistant', content: data.data.response.plan.join('\n\n'), timestamp: Date.now() }
-    //   ]
-    // })
     if (isEmpty(startChat.data)) return
     startChat.data!.forEach(rawItem => {
       if (isEmpty(rawItem)) return
@@ -104,7 +141,45 @@ export default function StreamPage() {
     })
   }, [startChat.data])
 
-  const isLoading = startChat.status === 'streaming' || startChat.status === 'submitted'
+  useEffect(() => {
+    if (isEmpty(resumeChat.data)) return
+    resumeChat.data!.forEach(rawItem => {
+      if (isEmpty(rawItem)) return
+      const item = rawItem!.valueOf()
+
+      if (typeof item === 'object' && Object.hasOwn(item, 'final')) {
+        setIsFinal((item as { final: boolean }).final)
+      }
+
+      if (typeof item === 'object' && Object.hasOwn(item, 'response')) {
+        const data = item as {
+          response: {
+            question: string,
+            plan: string[],
+          } | string
+        }
+
+        setMessagesHistory(prev => {
+          if (typeof data.response === 'string') {
+            return [...prev,
+            { role: 'assistant', content: data.response, timestamp: Date.now() },
+            ]
+          } else {
+            return [...prev,
+            { role: 'assistant', content: data.response.question, timestamp: Date.now() },
+            { role: 'assistant', content: data.response.plan.join('\n\n'), timestamp: Date.now() }
+            ]
+          }
+        })
+      }
+
+    })
+    console.log('resumeChat.data ==> ', resumeChat.data)
+  }, [resumeChat.data])
+
+  const isLoading =
+    startChat.status === 'streaming' || startChat.status === 'submitted' ||
+    resumeChat.status === 'streaming' || resumeChat.status === 'submitted'
 
   return <main className="min-h-screen p-8 flex flex-col">
     <h1>Using `.streamEvents` method</h1>
@@ -164,6 +239,21 @@ export default function StreamPage() {
           </>
           : null}
 
+        {!isFinal && !isEmpty(threadId) ? <>
+          {!toggleFeedback ?
+            <div className="flex items-center space-x-4" >
+              <button onClick={() => resumeChatOnSubmit({ type: 'accept' })} {...resumeChatForm.register('type')}>Approve</button>
+              <button onClick={() => setToggleFeedback(true)}>Feedback</button>
+            </div> :
+            <form onSubmit={resumeChatForm.handleSubmit(resumeChatOnSubmit)}>
+              <textarea className="border border-slate-300 px-4 py-2 rounded-lg" {...resumeChatForm.register('feedback')} />
+              <div className="space-x-4" >
+                <button onClick={() => setToggleFeedback(false)}>Cancel</button>
+                <button type="submit" {...resumeChatForm.register('type')} onClick={() => resumeChatForm.setValue('type', 'feedback')}>Submit</button>
+              </div>
+            </form>
+          }
+        </> : null}
       </div>
     </div>
   </main>

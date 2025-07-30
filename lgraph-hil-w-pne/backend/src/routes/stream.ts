@@ -6,7 +6,7 @@ import { langfuseHandler } from "../utils/langfuse.js";
 import { chatAgent } from "../chat-agent/graph.js";
 import { createDataStreamResponse } from 'ai'
 import encodeurl from 'encodeurl';
-import { isArray, isEmpty } from "lodash-es";
+import { hasIn, isArray, isEmpty } from "lodash-es";
 
 export const streamChatSchema = z.object({
   message: z.string(),
@@ -46,16 +46,16 @@ export const streamChatHandler = async (
           if (event === 'on_chain_stream') {
             const { chunk } = data
             const hasInterrupt = Object.hasOwn(chunk, '__interrupt__') && isArray(chunk['__interrupt__']) && !isEmpty(chunk['__interrupt__'])
-            if (hasInterrupt) {
-              const interrupt = chunk['__interrupt__'][0]
-              const value = interrupt.value as {
-                question: string,
-                plan: string[]
-              }
-              dataStream.writeData({
-                response: value
-              })
+            if (!hasInterrupt) continue
+
+            const interrupt = chunk['__interrupt__'][0]
+            const value = interrupt.value as {
+              question: string,
+              plan: string[]
             }
+            dataStream.writeData({
+              response: value
+            })
           }
         }
       },
@@ -91,18 +91,19 @@ export const streamChatResumeHandler = async (
     req.log.debug(`resuming a conversation: ${threadId}`);
     req.log.debug(`the body ${JSON.stringify(req.body, null, 2)}`)
 
-    const state = await chatAgent.getState({
-      recursionLimit: 35,
-      configurable: {
-        threadId: threadId
-      },
-      //   callbacks: [langfuseHandler]
-    });
-    if (isEmpty(state.values)) {
-      return res.code(400).send({
-        error: `Chat thread not found. threadId: ${threadId}`,
-      });
-    }
+    // for some reason this doesn't work 
+    // const state = await chatAgent.getState({
+    //   recursionLimit: 35,
+    //   configurable: {
+    //     threadId: threadId
+    //   },
+    //   //   callbacks: [langfuseHandler]
+    // });
+    // if (isEmpty(state.values)) {
+    //   return res.code(400).send({
+    //     error: `Chat thread not found. threadId: ${threadId}`,
+    //   });
+    // }
 
     let resumeCommand;
     if (type === 'accept') {
@@ -146,7 +147,6 @@ export const streamChatResumeHandler = async (
 
         for await (const events of agentOutput) {
           const { data, event, name, run_id, metadata } = events
-          console.log(JSON.stringify(events, null, 2))
 
           if (event === 'on_chain_stream') {
             const { chunk } = data
@@ -158,10 +158,23 @@ export const streamChatResumeHandler = async (
                 plan: string[]
               }
               dataStream.writeData({
-                response: value
+                response: value,
+                final: false
               })
             }
+
+            const hasReplan = Object.hasOwn(chunk, 'replan') && !isEmpty(chunk['replan'])
+            if (hasReplan) {
+              const hasResponse = Object.hasOwn(chunk['replan'], 'response') && !isEmpty(chunk['replan']['response'])
+              if (hasResponse) {
+                dataStream.writeData({
+                  final: true,
+                  response: chunk['replan']['response']
+                })
+              }
+            }
           }
+
         }
       },
       onError: (error) => {
@@ -171,31 +184,6 @@ export const streamChatResumeHandler = async (
     })
 
     return res.code(200).send(sseResponse)
-
-    // const response = await chatAgent.invoke(resumeCommand, config);
-    // const resumeState = await chatAgent.getState({
-    //   recursionLimit: 35,
-    //   configurable: {
-    //     threadId: threadId
-    //   },
-    //   //   callbacks: [langfuseHandler]
-    // })
-
-    // if (resumeState.next.includes("human_review")) {
-    //   const task = resumeState.tasks[0];
-    //   const interrupt = task.interrupts[0];
-    //   const interruptValue = interrupt.value;
-    //   return res.code(200).send({
-    //     threadId,
-    //     response: interruptValue,
-    //     final: false
-    //   });
-    // }
-    // return res.code(200).send({
-    //   threadId,
-    //   response: response.response,
-    //   final: true
-    // });
   } catch (err) {
     console.error(err);
     return res.code(500).send({
