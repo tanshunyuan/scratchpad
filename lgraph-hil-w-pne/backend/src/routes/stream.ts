@@ -1,4 +1,4 @@
-import { LangGraphRunnableConfig } from "@langchain/langgraph";
+import { Command, LangGraphRunnableConfig } from "@langchain/langgraph";
 import { FastifyReply, FastifyRequest } from "fastify";
 import { nanoid } from "nanoid";
 import z from "zod";
@@ -33,7 +33,6 @@ export const streamChatHandler = async (
             thread_id: generatedThreadId,
           },
           version: "v2",
-          // encoding: "text/event-stream"
           // callbacks: [langfuseHandler]
         })
 
@@ -68,34 +67,134 @@ export const streamChatHandler = async (
 
     return res.code(200).send(sseResponse)
 
-    // const headers = Object.fromEntries(
-    //   Array.from(sseResponse.headers.entries()).map(([k, v]) => [k, encodeurl(v)])
-    // );
-    // console.log(headers)
-    // console.log(sseResponse.headers)
-    // return res.code(sseResponse.status)
-    //   // .headers({...headers})
-    //   .send({
-    //     threadId: generatedThreadId,
-    //     response: sseResponse
-    //   })
+  } catch (err) {
+    console.error(err);
+    return res.code(500).send({
+      error: err.message,
+    });
+  }
+};
 
+export const streamChatResumeSchema = z
+  .object({
+    threadId: z.string(),
+    // should validate that message is needed if type === feedback
+    message: z.string().optional(),
+    type: z.enum(["accept", "feedback"]),
+  })
+export const streamChatResumeHandler = async (
+  req: FastifyRequest<{ Body: z.infer<typeof streamChatResumeSchema> }>,
+  res: FastifyReply,
+) => {
+  try {
+    const { threadId, message, type } = req.body;
+    req.log.debug(`resuming a conversation: ${threadId}`);
+    req.log.debug(`the body ${JSON.stringify(req.body, null, 2)}`)
 
-    // const state = await chatAgent.getState(config);
+    const state = await chatAgent.getState({
+      recursionLimit: 35,
+      configurable: {
+        threadId: threadId
+      },
+      //   callbacks: [langfuseHandler]
+    });
+    if (isEmpty(state.values)) {
+      return res.code(400).send({
+        error: `Chat thread not found. threadId: ${threadId}`,
+      });
+    }
 
-    // if (state.next.includes("human_review")) {
-    //   const task = state.tasks[0];
+    let resumeCommand;
+    if (type === 'accept') {
+      resumeCommand = new Command({
+        resume: {
+          action: {
+            type: 'accept',
+          },
+        },
+      });
+    } else if (type === 'feedback' && !isEmpty(message)) {
+      resumeCommand = new Command({
+        resume: {
+          action: {
+            type: 'feedback',
+            feedback: message
+          },
+        },
+      });
+    } else {
+      return res.code(400).send({
+        error: `Either the type passed in is wrong or message is empty when sending in a feedback`
+      })
+    }
+
+    const sseResponse = createDataStreamResponse({
+      status: 200,
+      statusText: "OK",
+      execute: async (dataStream) => {
+        const agentOutput = await chatAgent.streamEvents(resumeCommand, {
+          configurable: {
+            thread_id: threadId,
+          },
+          version: "v2",
+          // callbacks: [langfuseHandler]
+        })
+
+        dataStream.writeData({
+          threadId: threadId
+        })
+
+        for await (const events of agentOutput) {
+          const { data, event, name, run_id, metadata } = events
+          console.log(JSON.stringify(events, null, 2))
+
+          if (event === 'on_chain_stream') {
+            const { chunk } = data
+            const hasInterrupt = Object.hasOwn(chunk, '__interrupt__') && isArray(chunk['__interrupt__']) && !isEmpty(chunk['__interrupt__'])
+            if (hasInterrupt) {
+              const interrupt = chunk['__interrupt__'][0]
+              const value = interrupt.value as {
+                question: string,
+                plan: string[]
+              }
+              dataStream.writeData({
+                response: value
+              })
+            }
+          }
+        }
+      },
+      onError: (error) => {
+        console.error(error);
+        return error
+      }
+    })
+
+    return res.code(200).send(sseResponse)
+
+    // const response = await chatAgent.invoke(resumeCommand, config);
+    // const resumeState = await chatAgent.getState({
+    //   recursionLimit: 35,
+    //   configurable: {
+    //     threadId: threadId
+    //   },
+    //   //   callbacks: [langfuseHandler]
+    // })
+
+    // if (resumeState.next.includes("human_review")) {
+    //   const task = resumeState.tasks[0];
     //   const interrupt = task.interrupts[0];
     //   const interruptValue = interrupt.value;
     //   return res.code(200).send({
-    //     threadId: generatedThreadId,
+    //     threadId,
     //     response: interruptValue,
+    //     final: false
     //   });
     // }
-
     // return res.code(200).send({
-    //   threadId: generatedThreadId,
+    //   threadId,
     //   response: response.response,
+    //   final: true
     // });
   } catch (err) {
     console.error(err);

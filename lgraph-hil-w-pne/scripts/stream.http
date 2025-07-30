@@ -1,10 +1,34 @@
 @hostname=http://localhost:8000
 
 ### 
-POST http://localhost:8000/stream/chat
+# @name newchat
+POST {{hostname}}/stream/chat
 Content-Type: application/json
 
 {
   "message": "what is the hometown of kilian jornet?"
+}
+###
+
+@threadId={{newchat.response.body.$.threadId}}
+
+###
+POST {{hostname}}/stream/chat/resume
+Content-Type: application/json
+
+{
+  "threadId": "RFJ9HUQD-BnpAvZ432NBH",
+  "type": "accept"
+}
+###
+
+###
+POST {{hostname}}/stream/chat/resume
+Content-Type: application/json
+
+{
+  "threadId": "{{threadId}}",
+  "type": "feedback",
+  "message": "The plan is too long, come up with a shorter plan"
 }
 ###
