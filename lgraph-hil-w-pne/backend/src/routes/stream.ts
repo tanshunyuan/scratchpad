@@ -6,6 +6,7 @@ import { langfuseHandler } from "../utils/langfuse.js";
 import { chatAgent } from "../chat-agent/graph.js";
 import { createDataStreamResponse } from 'ai'
 import encodeurl from 'encodeurl';
+import { isArray, isEmpty } from "lodash-es";
 
 export const streamChatSchema = z.object({
   message: z.string(),
@@ -32,12 +33,31 @@ export const streamChatHandler = async (
             thread_id: generatedThreadId,
           },
           version: "v2",
-          encoding: "text/event-stream"
+          // encoding: "text/event-stream"
           // callbacks: [langfuseHandler]
         })
 
+        dataStream.writeData({
+          threadId: generatedThreadId
+        })
+
         for await (const events of agentOutput) {
-          dataStream.writeData(JSON.stringify(events, null, 2))
+          const { data, event, name, run_id, metadata } = events
+
+          if (event === 'on_chain_stream') {
+            const { chunk } = data
+            const hasInterrupt = Object.hasOwn(chunk, '__interrupt__') && isArray(chunk['__interrupt__']) && !isEmpty(chunk['__interrupt__'])
+            if (hasInterrupt) {
+              const interrupt = chunk['__interrupt__'][0]
+              const value = interrupt.value as {
+                question: string,
+                plan: string[]
+              }
+              dataStream.writeData({
+                response: value
+              })
+            }
+          }
         }
       },
       onError: (error) => {
@@ -45,6 +65,8 @@ export const streamChatHandler = async (
         return error
       }
     })
+
+    return res.code(200).send(sseResponse)
 
     // const headers = Object.fromEntries(
     //   Array.from(sseResponse.headers.entries()).map(([k, v]) => [k, encodeurl(v)])
@@ -58,10 +80,6 @@ export const streamChatHandler = async (
     //     response: sseResponse
     //   })
 
-    return res.code(200).send({
-      threadId: generatedThreadId,
-      response: sseResponse
-    })
 
     // const state = await chatAgent.getState(config);
 

@@ -5,7 +5,7 @@ import { useChat } from "ai/react";
 import axios from "axios";
 import isEmpty from "lodash-es/isEmpty";
 import { CircleStopIcon, SendIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import ReactMarkdown from 'react-markdown'
 import z from "zod";
@@ -30,17 +30,20 @@ export default function StreamPage() {
     api: 'http://localhost:8000/stream/chat',
     onResponse: (response) => {
       console.log(`startChat.onResponse.response ==> `, response)
-      //   setThreadId(response.body.data.threadId)
-      //   setMessagesHistory(prev => {
-      //     return [...prev,
-      //     { role: 'assistant', content: data.data.response.question, timestamp: Date.now() },
-      //     { role: 'assistant', content: data.data.response.plan.join('\n\n'), timestamp: Date.now() }
-      //     ]
-      //   })
+      // setThreadId(response.body.data.threadId)
+      // setMessagesHistory(prev => {
+      //   return [...prev,
+      //   { role: 'assistant', content: data.data.response.question, timestamp: Date.now() },
+      //   { role: 'assistant', content: data.data.response.plan.join('\n\n'), timestamp: Date.now() }
+      //   ]
+      // })
     },
     onFinish: (message) => {
       console.log(`startChat.onFinish.message ==> `, message)
-    }
+    },
+    onError: (error) => {
+      console.log(`startChat.onError.error ==> `, error)
+    },
   })
 
   const resetStartChat = () => startChatForm.reset()
@@ -65,6 +68,41 @@ export default function StreamPage() {
     )
   }
 
+  useEffect(() => {
+    // setThreadId(startChat.body.data.threadId)
+    // setMessagesHistory(prev => {
+    //   return [...prev,
+    //   { role: 'assistant', content: data.data.response.question, timestamp: Date.now() },
+    //   { role: 'assistant', content: data.data.response.plan.join('\n\n'), timestamp: Date.now() }
+    //   ]
+    // })
+    if (isEmpty(startChat.data)) return
+    startChat.data!.forEach(rawItem => {
+      if (isEmpty(rawItem)) return
+      const item = rawItem!.valueOf()
+
+      if (typeof item === 'object' && Object.hasOwn(item, 'threadId')) {
+        console.log('startChat setting threadId')
+        setThreadId((item as { threadId: string }).threadId)
+      }
+
+      if (typeof item === 'object' && Object.hasOwn(item, 'response')) {
+        console.log('startChat setting question & plan')
+        const response = item as {
+          response: {
+            question: string
+            plan: string[]
+          }
+        }
+        setMessagesHistory(prev => {
+          return [...prev,
+          { role: 'assistant', content: response.response.question, timestamp: Date.now() },
+          { role: 'assistant', content: response.response.plan.join('\n\n'), timestamp: Date.now() }
+          ]
+        })
+      }
+    })
+  }, [startChat.data])
 
   const isLoading = startChat.status === 'streaming' || startChat.status === 'submitted'
 
