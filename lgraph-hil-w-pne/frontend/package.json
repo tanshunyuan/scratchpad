@@ -13,7 +13,7 @@
     "@hookform/resolvers": "^5.2.0",
     "@tanstack/react-query": "^5.83.0",
     "@types/lodash-es": "^4.17.12",
-    "ai": "^4.3.19",
+    "ai": "^4.1.54",
     "axios": "^1.11.0",
     "lodash-es": "^4.17.21",
     "lucide-react": "^0.533.0",

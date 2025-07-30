@@ -1,0 +1,10 @@
+@hostname=http://localhost:8000
+
+### 
+POST http://localhost:8000/stream/chat
+Content-Type: application/json
+
+{
+  "message": "what is the hometown of kilian jornet?"
+}
+###

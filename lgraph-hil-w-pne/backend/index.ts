@@ -6,12 +6,13 @@ import {
   ZodTypeProvider,
 } from "fastify-type-provider-zod";
 import {
-  chatHandler,
-  chatResumeHandler,
-  chatResumeSchema,
-  chatSchema,
-} from "./src/chat-agent/index.js";
+  invokeChatHandler,
+  invokeChatResumeHandler,
+  invokeChatResumeSchema,
+  invokeChatSchema,
+} from "./src/routes/invoke.js";
 import cors from '@fastify/cors'
+import { streamChatHandler, streamChatSchema } from "./src/routes/stream.js";
 
 const port = parseInt(env.PORT);
 const host = `localhost`;
@@ -40,18 +41,27 @@ server.withTypeProvider<ZodTypeProvider>().route({
   method: "POST",
   url: "/invoke/chat",
   schema: {
-    body: chatSchema,
+    body: invokeChatSchema,
   },
-  handler: chatHandler,
+  handler: invokeChatHandler,
 });
 
 server.withTypeProvider<ZodTypeProvider>().route({
   method: "POST",
   url: "/invoke/chat/resume",
   schema: {
-    body: chatResumeSchema,
+    body: invokeChatResumeSchema,
   },
-  handler: chatResumeHandler,
+  handler: invokeChatResumeHandler,
+});
+
+server.withTypeProvider<ZodTypeProvider>().route({
+  method: "POST",
+  url: "/stream/chat",
+  schema: {
+    body: streamChatSchema,
+  },
+  handler: streamChatHandler,
 });
 
 server.listen({ host, port }, (err, address) => {

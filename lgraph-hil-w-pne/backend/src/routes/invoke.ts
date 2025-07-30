@@ -1,17 +1,17 @@
 import { FastifyReply, FastifyRequest } from "fastify";
 import z from "zod";
 import { nanoid } from "nanoid";
-import { chatAgent } from "./graph.js";
 import { Command, LangGraphRunnableConfig } from "@langchain/langgraph";
 import isEmpty from "lodash-es/isEmpty.js";
 import { RunnableConfig } from "@langchain/core/runnables";
 import { langfuseHandler } from "../utils/langfuse.js";
+import { chatAgent } from "../chat-agent/graph.js";
 
-export const chatSchema = z.object({
+export const invokeChatSchema = z.object({
   message: z.string(),
 });
-export const chatHandler = async (
-  req: FastifyRequest<{ Body: z.infer<typeof chatSchema> }>,
+export const invokeChatHandler = async (
+  req: FastifyRequest<{ Body: z.infer<typeof invokeChatSchema> }>,
   res: FastifyReply,
 ) => {
   try {
@@ -56,15 +56,15 @@ export const chatHandler = async (
   }
 };
 
-export const chatResumeSchema = z
+export const invokeChatResumeSchema = z
   .object({
     threadId: z.string(),
     // should validate that message is needed if type === feedback
     message: z.string().optional(),
     type: z.enum(["accept", "feedback"]),
   })
-export const chatResumeHandler = async (
-  req: FastifyRequest<{ Body: z.infer<typeof chatResumeSchema> }>,
+export const invokeChatResumeHandler = async (
+  req: FastifyRequest<{ Body: z.infer<typeof invokeChatResumeSchema> }>,
   res: FastifyReply,
 ) => {
   try {
