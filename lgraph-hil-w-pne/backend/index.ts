@@ -13,6 +13,7 @@ import {
 } from "./src/routes/invoke.js";
 import cors from '@fastify/cors'
 import { streamChatHandler, streamChatResumeHandler, streamChatResumeSchema, streamChatSchema } from "./src/routes/stream.js";
+import { streamNewChatHandler, streamNewChatSchema } from "./src/routes/stream-new.js";
 
 const port = parseInt(env.PORT);
 const host = `localhost`;
@@ -71,6 +72,15 @@ server.withTypeProvider<ZodTypeProvider>().route({
     body: streamChatResumeSchema,
   },
   handler: streamChatResumeHandler,
+});
+
+server.withTypeProvider<ZodTypeProvider>().route({
+  method: "POST",
+  url: "/stream/chat/new",
+  schema: {
+    body: streamNewChatSchema,
+  },
+  handler: streamNewChatHandler,
 });
 
 server.listen({ host, port }, (err, address) => {

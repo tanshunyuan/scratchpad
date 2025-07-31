@@ -1,6 +1,9 @@
+
 import { Input } from "@base-ui-components/react";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useMutation } from "@tanstack/react-query";
 import { useChat } from "ai/react";
+import axios from "axios";
 import isEmpty from "lodash-es/isEmpty";
 import { CircleStopIcon, SendIcon } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -33,20 +36,31 @@ export default function StreamPage() {
     resolver: zodResolver(resumeChatSchema)
   })
 
-  const chat = useChat({
-    api: 'http://localhost:8000/stream/chat/new',
+  const startChat = useChat({
+    api: 'http://localhost:8000/stream/chat',
+    // onResponse: (response) => {
+    //   console.log(`startChat.onResponse.response ==> `, response)
+    // },
+    // onFinish: (message) => {
+    //   console.log(`startChat.onFinish.message ==> `, message)
+    // },
+    onError: (error) => {
+      console.log(`startChat.onError.error ==> `, error)
+    },
+  })
+
+  const resumeChat = useChat({
+    api: 'http://localhost:8000/stream/chat/resume',
     // onResponse: (response) => {
     //   console.log(`startChat.onResponse.response ==> `, response)
     // },
     onFinish: (message) => {
-      console.log(`startChat.onFinish.message ==> `, message)
       resetResumeChat()
     },
     onError: (error) => {
-      console.log(`chat.onError.error ==> `, error)
+      console.log(`resumeChat.onError.error ==> `, error)
     },
   })
-
 
 
   const resetStartChat = () => startChatForm.reset()
@@ -63,7 +77,7 @@ export default function StreamPage() {
     })
     resetStartChat()
 
-    chat.append({
+    startChat.append({
       role: 'user',
       content: data.message
     },
@@ -85,7 +99,7 @@ export default function StreamPage() {
       })
     }
 
-    chat.append({
+    resumeChat.append({
       role: 'user',
       content: data.type
     },
@@ -100,8 +114,8 @@ export default function StreamPage() {
   }
 
   useEffect(() => {
-    if (isEmpty(chat.data)) return
-    chat.data!.forEach(rawItem => {
+    if (isEmpty(startChat.data)) return
+    startChat.data!.forEach(rawItem => {
       if (isEmpty(rawItem)) return
       const item = rawItem!.valueOf()
 
@@ -109,6 +123,30 @@ export default function StreamPage() {
         console.log('startChat setting threadId')
         setThreadId((item as { threadId: string }).threadId)
       }
+
+      if (typeof item === 'object' && Object.hasOwn(item, 'response')) {
+        console.log('startChat setting question & plan')
+        const response = item as {
+          response: {
+            question: string
+            plan: string[]
+          }
+        }
+        setMessagesHistory(prev => {
+          return [...prev,
+          { role: 'assistant', content: response.response.question, timestamp: Date.now() },
+          { role: 'assistant', content: response.response.plan.join('\n\n'), timestamp: Date.now() }
+          ]
+        })
+      }
+    })
+  }, [startChat.data])
+
+  useEffect(() => {
+    if (isEmpty(resumeChat.data)) return
+    resumeChat.data!.forEach(rawItem => {
+      if (isEmpty(rawItem)) return
+      const item = rawItem!.valueOf()
 
       if (typeof item === 'object' && Object.hasOwn(item, 'final')) {
         setIsFinal((item as { final: boolean }).final)
@@ -135,11 +173,14 @@ export default function StreamPage() {
           }
         })
       }
-    })
-  }, [chat.data])
 
-  const isLoading =
-    chat.status === 'streaming' || chat.status === 'submitted'
+    })
+    console.log('resumeChat.data ==> ', resumeChat.data)
+  }, [resumeChat.data])
+
+   const isLoading =
+    startChat.status === 'streaming' || startChat.status === 'submitted' ||
+    resumeChat.status === 'streaming' || resumeChat.status === 'submitted'
 
   return <main className="min-h-screen p-8 flex flex-col">
     <h1>Using `.streamEvents` method</h1>
@@ -161,7 +202,7 @@ export default function StreamPage() {
             </div> : null}
           </div>
         })}
-        {isLoading ? <p>loading...</p> : null}
+
       </div>
       {/* chat input */}
       <div className="mt-auto">
@@ -199,7 +240,7 @@ export default function StreamPage() {
           </>
           : null}
 
-        {!isFinal && !isEmpty(threadId) && !isLoading ? <>
+        {!isFinal && !isEmpty(threadId) ? <>
           {!toggleFeedback ?
             <div className="flex items-center space-x-4" >
               <button onClick={() => resumeChatOnSubmit({ type: 'accept' })} {...resumeChatForm.register('type')}>Approve</button>
@@ -218,5 +259,3 @@ export default function StreamPage() {
     </div>
   </main>
 }
-
-
