@@ -5,6 +5,8 @@ import { nanoid } from "nanoid";
 import z from "zod";
 import { chatAgent } from "../chat-agent/graph.js";
 import { Command } from "@langchain/langgraph";
+import { IterableReadableStream } from "@langchain/core/utils/stream";
+import { StreamEvent } from "@langchain/core/tracers/log_stream";
 
 export const streamNewChatSchema = z.object({
   threadId: z.string().optional(),
@@ -49,58 +51,30 @@ export const streamNewChatHandler = async (
   try {
     const { threadId, message, type } = req.body;
 
-    // if (isEmpty(threadId)) {
-    //   const generatedThreadId = nanoid();
-    //   req.log.debug(`starting a new conversation: ${generatedThreadId}`);
-
-    // } else {
-
-    // }
-
     const sseResponse = createDataStreamResponse({
       status: 200,
       statusText: "OK",
       execute: async (dataStream) => {
-        if (isEmpty(threadId)) {
-          const generatedThreadId = nanoid();
-          req.log.debug(`starting a new conversation: ${generatedThreadId}`);
+        let agentOutput: IterableReadableStream<StreamEvent>;
+        let currentThreadId: string
 
-          const agentOutput = await chatAgent.streamEvents({
+        if (isEmpty(threadId)) {
+          currentThreadId = nanoid();
+          req.log.debug(`starting a new conversation: ${currentThreadId}`);
+
+          agentOutput = await chatAgent.streamEvents({
             input: message
           }, {
             configurable: {
-              thread_id: generatedThreadId,
+              thread_id: currentThreadId,
             },
             version: "v2",
             // callbacks: [langfuseHandler]
           })
 
-          dataStream.writeData({
-            threadId: generatedThreadId
-          })
-
-          for await (const events of agentOutput) {
-            const { data, event, name, run_id, metadata } = events
-
-            if (event === 'on_chain_stream') {
-              const { chunk } = data
-              const hasInterrupt = Object.hasOwn(chunk, '__interrupt__') && isArray(chunk['__interrupt__']) && !isEmpty(chunk['__interrupt__'])
-              if (!hasInterrupt) continue
-
-              const interrupt = chunk['__interrupt__'][0]
-              const value = interrupt.value as {
-                question: string,
-                plan: string[]
-              }
-              dataStream.writeData({
-                response: value,
-                final: false,
-              })
-            }
-          }
-
         } else {
-          req.log.debug(`resuming a conversation: ${threadId}`);
+          currentThreadId = threadId!
+          req.log.debug(`resuming a conversation: ${currentThreadId}`);
           req.log.debug(`the body ${JSON.stringify(req.body, null, 2)}`)
 
           let resumeCommand;
@@ -127,51 +101,49 @@ export const streamNewChatHandler = async (
             })
           }
 
-          const agentOutput = await chatAgent.streamEvents(resumeCommand, {
+          agentOutput = await chatAgent.streamEvents(resumeCommand, {
             configurable: {
-              thread_id: threadId,
+              thread_id: currentThreadId,
             },
             version: "v2",
             // callbacks: [langfuseHandler]
           })
+        }
 
-          dataStream.writeData({
-            threadId: threadId!
-          })
+        for await (const events of agentOutput) {
+          const { data, event, name, run_id, metadata } = events
 
-          for await (const events of agentOutput) {
-            const { data, event, name, run_id, metadata } = events
-
-            if (event === 'on_chain_stream') {
-              const { chunk } = data
-              const hasInterrupt = Object.hasOwn(chunk, '__interrupt__') && isArray(chunk['__interrupt__']) && !isEmpty(chunk['__interrupt__'])
-              if (hasInterrupt) {
-                const interrupt = chunk['__interrupt__'][0]
-                const value = interrupt.value as {
-                  question: string,
-                  plan: string[]
-                }
-                dataStream.writeData({
-                  response: value,
-                  final: false
-                })
+          if (event === 'on_chain_stream') {
+            const { chunk } = data
+            const hasInterrupt = Object.hasOwn(chunk, '__interrupt__') && isArray(chunk['__interrupt__']) && !isEmpty(chunk['__interrupt__'])
+            if (hasInterrupt) {
+              const interrupt = chunk['__interrupt__'][0]
+              const value = interrupt.value as {
+                question: string,
+                plan: string[]
               }
-
-              const hasReplan = Object.hasOwn(chunk, 'replan') && !isEmpty(chunk['replan'])
-              if (hasReplan) {
-                const hasResponse = Object.hasOwn(chunk['replan'], 'response') && !isEmpty(chunk['replan']['response'])
-                if (hasResponse) {
-                  dataStream.writeData({
-                    final: true,
-                    response: chunk['replan']['response']
-                  })
-                }
-              }
+              dataStream.writeData({
+                response: value,
+                final: false
+              })
             }
 
+            const hasReplan = Object.hasOwn(chunk, 'replan') && !isEmpty(chunk['replan'])
+            if (hasReplan) {
+              const hasResponse = Object.hasOwn(chunk['replan'], 'response') && !isEmpty(chunk['replan']['response'])
+              if (hasResponse) {
+                dataStream.writeData({
+                  final: true,
+                  response: chunk['replan']['response']
+                })
+              }
+            }
           }
-
         }
+
+        dataStream.writeData({
+          threadId: currentThreadId
+        })
       },
       onError: (error) => {
         console.error(error);

@@ -17,6 +17,7 @@
     "axios": "^1.11.0",
     "lodash-es": "^4.17.21",
     "lucide-react": "^0.533.0",
+    "nanoid": "^5.1.5",
     "next": "13.5.11",
     "react": "^18",
     "react-dom": "^18",

@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import ReactMarkdown from 'react-markdown'
 import z from "zod";
+import { nanoid } from "nanoid";
 
 const startChatSchema = z.object({
   message: z.string().min(3)
@@ -77,17 +78,12 @@ export default function StreamPage() {
 
   const resumeChatOnSubmit = (data: ResumeChatSchema) => {
     if (isEmpty(threadId)) throw new Error(`Cannot resume a chat without a threadId!`);
+    chat.setData(undefined)
 
-    if (data.feedback) {
-      console.log('adding user feedback to chat...')
-      setMessagesHistory((prev) => {
-        return [...prev, { role: 'user', content: data.feedback!, timestamp: Date.now() }]
-      })
-    }
 
     chat.append({
       role: 'user',
-      content: data.type
+      content: `${data.type}`
     },
       {
         body: {
@@ -97,6 +93,14 @@ export default function StreamPage() {
         }
       }
     )
+
+    if (data.feedback) {
+      console.log('adding user feedback to chat...')
+      chat.setMessages((prev) => {
+        return [...prev, { role: "user", content: data.feedback!, id: nanoid() }]
+      })
+    }
+
   }
 
   useEffect(() => {
@@ -122,21 +126,21 @@ export default function StreamPage() {
           } | string
         }
 
-        setMessagesHistory(prev => {
+        chat.setMessages(prev => {
           if (typeof data.response === 'string') {
             return [...prev,
-            { role: 'assistant', content: data.response, timestamp: Date.now() },
+            { role: 'assistant', content: data.response, id: nanoid() },
             ]
           } else {
             return [...prev,
-            { role: 'assistant', content: data.response.question, timestamp: Date.now() },
-            { role: 'assistant', content: data.response.plan.join('\n\n'), timestamp: Date.now() }
+            { role: 'assistant', content: data.response.question, id: nanoid() },
+            { role: 'assistant', content: data.response.plan.join('\n\n'), id: nanoid() }
             ]
           }
         })
       }
     })
-  }, [chat.data])
+  }, [chat.data, chat.setMessages])
 
   const isLoading =
     chat.status === 'streaming' || chat.status === 'submitted'
@@ -147,15 +151,15 @@ export default function StreamPage() {
     <div className="flex-1 flex flex-col">
       {/* chat body */}
       <div>
-        {messagesHistory.sort((a, b) => a.timestamp - b.timestamp).map((state, idx) => {
+        {chat.messages.map((state, idx) => {
           const isYou = state.role === 'user'
           const isAssistant = state.role === 'assistant'
-          return <div key={idx} className={`mb-2`}>
-            {isYou ? <div className="p-4 bg-slate-400 text-right max-w-[32ch] ml-auto rounded-2xl rounded-tr-none">
+          return <div key={state.id} className={`mb-2`}>
+            {isYou && !isEmpty(state.content) ? <div className="p-4 bg-slate-400 text-right max-w-[32ch] ml-auto rounded-2xl rounded-tr-none">
               <p className="text-white">{state.content}</p>
             </div> : null}
 
-            {isAssistant ? <div>
+            {isAssistant && !isEmpty(state.content) ? <div>
               <p className="font-bold">Assistant</p>
               <ReactMarkdown>{state.content}</ReactMarkdown>
             </div> : null}
