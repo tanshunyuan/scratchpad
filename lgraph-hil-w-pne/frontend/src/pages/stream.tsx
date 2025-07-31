@@ -80,6 +80,12 @@ export default function StreamPage() {
     if (isEmpty(threadId)) throw new Error(`Cannot resume a chat without a threadId!`);
     chat.setData(undefined)
 
+    if (data.feedback) {
+      console.log('adding user feedback to chat...')
+      chat.setMessages((prev) => {
+        return [...prev, { role: "user", content: data.feedback!, id: nanoid() }]
+      })
+    }
 
     chat.append({
       role: 'user',
@@ -93,13 +99,6 @@ export default function StreamPage() {
         }
       }
     )
-
-    if (data.feedback) {
-      console.log('adding user feedback to chat...')
-      chat.setMessages((prev) => {
-        return [...prev, { role: "user", content: data.feedback!, id: nanoid() }]
-      })
-    }
 
   }
 
@@ -151,20 +150,21 @@ export default function StreamPage() {
     <div className="flex-1 flex flex-col">
       {/* chat body */}
       <div>
-        {chat.messages.map((state, idx) => {
-          const isYou = state.role === 'user'
-          const isAssistant = state.role === 'assistant'
-          return <div key={state.id} className={`mb-2`}>
-            {isYou && !isEmpty(state.content) ? <div className="p-4 bg-slate-400 text-right max-w-[32ch] ml-auto rounded-2xl rounded-tr-none">
-              <p className="text-white">{state.content}</p>
-            </div> : null}
+        {
+          chat.messages.map(m => {
+            return <div key={m.id}>
+              {m.role === 'user' && !isEmpty(m.content) ? <div className="p-4 bg-slate-400 text-right max-w-[32ch] ml-auto rounded-2xl rounded-tr-none">
+                <p className="text-white">{m.content}</p>
+              </div> : null}
 
-            {isAssistant && !isEmpty(state.content) ? <div>
-              <p className="font-bold">Assistant</p>
-              <ReactMarkdown>{state.content}</ReactMarkdown>
-            </div> : null}
-          </div>
-        })}
+              {m.role === 'assistant' && !isEmpty(m.content) ? <div>
+                <strong>Assistant</strong>
+                <ReactMarkdown>{m.content}</ReactMarkdown>
+              </div> : null}
+              <br />
+            </div>
+          })
+        }
         {isLoading ? <p>loading...</p> : null}
       </div>
       {/* chat input */}
