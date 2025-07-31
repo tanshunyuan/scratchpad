@@ -12,8 +12,7 @@ import {
   invokeChatSchema,
 } from "./src/routes/invoke.js";
 import cors from '@fastify/cors'
-import { streamChatHandler, streamChatResumeHandler, streamChatResumeSchema, streamChatSchema } from "./src/routes/stream.js";
-import { streamNewChatHandler, streamNewChatSchema } from "./src/routes/stream-new.js";
+import { streamChatSchema, streamChatHandler } from "./src/routes/stream.js";
 
 const port = parseInt(env.PORT);
 const host = `localhost`;
@@ -56,6 +55,7 @@ server.withTypeProvider<ZodTypeProvider>().route({
   handler: invokeChatResumeHandler,
 });
 
+
 server.withTypeProvider<ZodTypeProvider>().route({
   method: "POST",
   url: "/stream/chat",
@@ -63,24 +63,6 @@ server.withTypeProvider<ZodTypeProvider>().route({
     body: streamChatSchema,
   },
   handler: streamChatHandler,
-});
-
-server.withTypeProvider<ZodTypeProvider>().route({
-  method: "POST",
-  url: "/stream/chat/resume",
-  schema: {
-    body: streamChatResumeSchema,
-  },
-  handler: streamChatResumeHandler,
-});
-
-server.withTypeProvider<ZodTypeProvider>().route({
-  method: "POST",
-  url: "/stream/chat/new",
-  schema: {
-    body: streamNewChatSchema,
-  },
-  handler: streamNewChatHandler,
 });
 
 server.listen({ host, port }, (err, address) => {

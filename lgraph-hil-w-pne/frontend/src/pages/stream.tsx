@@ -22,7 +22,6 @@ type ResumeChatSchema = z.infer<typeof resumeChatSchema>
 
 export default function StreamPage() {
   const [threadId, setThreadId] = useState<null | string>(null)
-  const [messagesHistory, setMessagesHistory] = useState<{ role: 'user' | 'assistant', content: string, timestamp: number }[]>([])
   const [toggleFeedback, setToggleFeedback] = useState(false)
   const [isFinal, setIsFinal] = useState(false)
 
@@ -35,12 +34,12 @@ export default function StreamPage() {
   })
 
   const chat = useChat({
-    api: 'http://localhost:8000/stream/chat/new',
+    api: 'http://localhost:8000/stream/chat',
     // onResponse: (response) => {
     //   console.log(`startChat.onResponse.response ==> `, response)
     // },
     onFinish: (message) => {
-      console.log(`startChat.onFinish.message ==> `, message)
+      console.log(`chat.onFinish.message ==> `, message)
       resetResumeChat()
     },
     onError: (error) => {
@@ -59,9 +58,6 @@ export default function StreamPage() {
   const startChatOnSubmit = (data: StartChatSchema) => {
     if (!isEmpty(threadId)) throw new Error(`Cannot start a new chat with an existing threadId!`);
 
-    setMessagesHistory((prev) => {
-      return [...prev, { role: 'user', content: data.message, timestamp: Date.now() }]
-    })
     resetStartChat()
 
     chat.append({
