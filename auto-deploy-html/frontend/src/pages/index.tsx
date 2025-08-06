@@ -2,8 +2,10 @@ import { HtmlSandbox } from "@/components/html-sandbox";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { useMutation } from "@tanstack/react-query";
 import { isEmpty } from "lodash-es";
 import { useState } from "react";
+import axios from "axios";
 
 const SAMPLE_HTML = `
   <!DOCTYPE html>
@@ -62,9 +64,36 @@ const SAMPLE_HTML = `
 
 export default function Home() {
   const [htmlStr, setHtmlStr] = useState<string>(SAMPLE_HTML);
+  const [siteUrl, setSiteUrl] = useState<string | null>(null);
+
+  const deploy = useMutation({
+    mutationFn: (payload: { html: string }) =>
+      axios
+        .post<{ siteUrl: string }>("/api/deployments/create", payload)
+        .then((r) => r.data),
+    onSuccess(data) {
+      setSiteUrl(data.siteUrl);
+      // // 3. open SSE channel
+      // const es = new EventSource(`/api/deploy-events/${userId}`);
+      // es.onmessage = (e) => {
+      //   const { deployUrl } = JSON.parse(e.data);
+      //   setLiveUrl(deployUrl);
+      //   refetch();
+      //   es.close();
+      // };
+    },
+  });
+
   return (
-    <main className={`flex min-h-screen p-16`}>
-      <Tabs defaultValue="code" className="w-full">
+    <main className={`flex flex-col min-h-screen h-full p-8`}>
+      {!isEmpty(siteUrl) ? (
+        <Button variant={"link"} asChild>
+          <a href={siteUrl} target="_blank">
+            {siteUrl}
+          </a>
+        </Button>
+      ) : null}
+      <Tabs defaultValue="code" className="w-full h-screen">
         <TabsList>
           <TabsTrigger value="code">Code</TabsTrigger>
           <TabsTrigger value="preview">Preview</TabsTrigger>
@@ -82,7 +111,15 @@ export default function Home() {
         </TabsContent>
         <TabsContent value="preview" className="h-full">
           {!isEmpty(htmlStr) ? (
-            <HtmlSandbox code={htmlStr} />
+            <div className="space-y-2 h-full">
+              <Button
+                onClick={() => deploy.mutate({ html: htmlStr })}
+                disabled={deploy.isPending}
+              >
+                {deploy.isPending ? "Deploying…" : "Deploy"}
+              </Button>
+              <HtmlSandbox code={htmlStr} />
+            </div>
           ) : (
             <p>Add some code to see the preview!</p>
           )}

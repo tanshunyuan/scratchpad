@@ -8,6 +8,10 @@ export const HtmlSandbox = (props: { code: string }) => {
 
   useEffect(() => {
     if (isEmpty(iframeRef.current)) return;
+    // const cleanHtml = sanitize(code, {
+    //   allowedTags: ["style"],
+    // });
+    // iframeRef.current.srcdoc = cleanHtml;
     iframeRef.current.srcdoc = code;
   }, [code]);
 
