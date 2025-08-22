@@ -41,33 +41,8 @@ async def health_check():
               500: {"description": "Internal server error during scraping", "model": ErrorResponse}
           })
 async def scrape_endpoint(request: ScrapeRequest):
-    """
-    Scrape a website using crawl4ai
-    
-    Args:
-        request: ScrapeRequest containing URL and optional configuration parameters
-        
-    Returns:
-        ScrapeResponse with scraped content in markdown format
-        
-    Raises:
-        HTTPException: For various error conditions with appropriate status codes
-    """
     try:
         logger.info(f"Received scraping request for URL: {request.url}")
-        
-        # Validate request parameters
-        if request.max_depth and request.max_depth > 5:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="max_depth cannot exceed 5"
-            )
-        
-        if request.max_pages and request.max_pages > 50:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="max_pages cannot exceed 50"
-            )
         
         # Perform scraping
         result = await scrape_website(request)

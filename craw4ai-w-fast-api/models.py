@@ -5,8 +5,6 @@ class ScrapeRequest(BaseModel):
     url: HttpUrl = Field(..., description="The URL to scrape")
     max_depth: Optional[int] = Field(default=2, ge=1, le=5, description="Maximum crawling depth")
     max_pages: Optional[int] = Field(default=10, ge=1, le=50, description="Maximum number of pages to crawl")
-    # content_filter_threshold: Optional[float] = Field(default=0.4, ge=0.0, le=1.0, description="Content filtering threshold")
-    # include_external: Optional[bool] = Field(default=False, description="Whether to include external links")
 
 class PageResult(BaseModel):
     url: str = Field(..., description="The URL of the scraped page")

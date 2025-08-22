@@ -9,4 +9,5 @@ dependencies = [
     "fastapi[standard]>=0.116.1",
     "loguru>=0.7.3",
     "pydantic>=2.11.7",
+    "tldextract>=5.3.0",
 ]

@@ -15,7 +15,7 @@ async def main():
         content_filter=PruningContentFilter(threshold=0.4, threshold_type="fixed"),
         options={
             "ignore_links": True,
-            "escapte_html": False,
+            "escape_html": False,
             "body_width": 80
         }
     )
