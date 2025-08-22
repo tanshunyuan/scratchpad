@@ -1,0 +1,11 @@
+services:
+  crawl4ai-w-fast-api:
+    container_name: crawl4ai-w-fast-api 
+    build: .
+    ports:
+      - "8000:8000"
+    # environment:
+    #   - UVICORN_RELOAD=true
+    # volumes:
+    #   - .:/app
+    # tty: true
