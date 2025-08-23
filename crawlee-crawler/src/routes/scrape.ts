@@ -34,6 +34,14 @@ const COMMON_PAGES = [
   /.*overview.*/i,
 ];
 
+const EN_PAGES = [
+  /^https?:\/\/[^\/]+\/en\/.*$/
+]
+
+const OTHER_LANG_PAGES = [
+  /^https?:\/\/[^\/]+\/(nl|fr|de|es|it|pt|da|sv|no|pl|cs|hu|ru|zh|ja|ko)\/.*$/
+]
+
 export const scrapeHandler = async (
   req: FastifyRequest<{ Body: z.infer<typeof scrapeSchema> }>,
   res: FastifyReply,
@@ -46,8 +54,8 @@ export const scrapeHandler = async (
         const title = $("title")
         log.info(`Page title: ${title.first().text()} on ${request.url}`);
         await enqueueLinks({
-          regexps: [...COMMON_PAGES],
-          exclude: [...SOCIAL_MEDIA_DOMAINS],
+          regexps: [...COMMON_PAGES, ...EN_PAGES],
+          exclude: [...SOCIAL_MEDIA_DOMAINS, ...OTHER_LANG_PAGES ],
           strategy: EnqueueStrategy.SameHostname,
         });
         $('header').remove()
@@ -70,7 +78,7 @@ export const scrapeHandler = async (
     res
       .code(200)
       .header("content-type", "application/json")
-      .send(JSON.stringify(results));
+      .send({content: results.join('\n')});
   } catch (error) {
     req.log.error(error);
     res.code(500).send({ error: (error as Error).message });
