@@ -4,6 +4,7 @@ import { CheerioCrawler, EnqueueStrategy, log } from "crawlee";
 import { FastifyReply, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import z from "zod";
+import TurndownService from 'turndown'
 
 export const scrapeSchema = z.object({
   url: z.string().url().min(1),
@@ -39,17 +40,28 @@ export const scrapeHandler = async (
 ) => {
   try {
     const results: string[] = [];
+    const turndownService = new TurndownService()
     const crawler = new CheerioCrawler({
-      // keepAlive: true,
       requestHandler: async ({ request, $, enqueueLinks }) => {
-        const title = $("title").text();
-        log.info(`Page title: ${title} on ${request.url}`);
-        results.push(title);
+        const title = $("title")
+        log.info(`Page title: ${title.first().text()} on ${request.url}`);
         await enqueueLinks({
           regexps: [...COMMON_PAGES],
           exclude: [...SOCIAL_MEDIA_DOMAINS],
           strategy: EnqueueStrategy.SameHostname,
         });
+        $('header').remove()
+        $('script').remove()
+        $('img').remove()
+        $('svg').remove()
+        $('style').remove()
+        $('nav').remove()
+        $('footer').remove()
+        $('noscript').remove()
+        const body = $('body')
+        const content = `${title.first()}\n${body.html()}`
+        const markdown = turndownService.turndown(content)
+        results.push(markdown)
       },
       maxRequestsPerCrawl: 10,
     });
