@@ -1,12 +1,15 @@
 {
-	"extends": "@apify/tsconfig",
-	"compilerOptions": {
-		"module": "NodeNext",
-		"moduleResolution": "NodeNext",
-		"target": "ES2022",
-		"outDir": "dist",
-		"noUnusedLocals": false,
-		"lib": ["DOM"]
-	},
-	"include": ["./src/**/*"]
+  "extends": "@apify/tsconfig",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    "outDir": "dist",
+    "lib": ["DOM"],
+    "rootDirs": ["src"],
+    "baseUrl": "./",
+    "noUnusedLocals": false,
+    "resolveJsonModule": true
+  },
+  "exclude": ["node_modules", "dist"]
 }

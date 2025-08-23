@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import z from "zod";
 
 export const scrapeSchema = z.object({
-  url: z.url().min(1),
+  url: z.string().url().min(1)
 });
 
 // We will bind an HTTP response that we want to send to the Request.uniqueKey
