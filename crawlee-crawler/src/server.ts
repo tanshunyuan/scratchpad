@@ -9,7 +9,7 @@ import { scrapeHandler, scrapeSchema } from "./routes/scrape.js";
 
 
 const port = parseInt('8000');
-const host = `localhost`;
+const host = `0.0.0.0`;
 
 const server = fastify({
   logger: {

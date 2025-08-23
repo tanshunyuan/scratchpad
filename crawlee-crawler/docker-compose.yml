@@ -1,0 +1,6 @@
+services:
+  crawlee-crawler:
+    container_name: crawlee-crawler
+    build: .
+    ports:
+      - "8000:8000"
