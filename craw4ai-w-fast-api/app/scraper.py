@@ -45,22 +45,6 @@ def normalize_url(url: str):
         url = url.rstrip("/")
     return url
 
-
-class CustomURLFilter:
-    """Custom URL filter that should work more reliably"""
-
-    def __init__(self, exclude_patterns: list[str]):
-        self.exclude_patterns = [p.replace("*", "") for p in exclude_patterns]
-
-    def should_exclude_url(self, url: str):
-        """Check if URL should be excluded based on patterns"""
-        url_lower = url.lower()
-        for pattern in self.exclude_patterns:
-            if pattern.lower() in url_lower:
-                return True
-        return False
-
-
 async def scrape_website(request: ScrapeRequest) -> ScrapeResponse:
     try:
         print(f"request.url {request.url}")
