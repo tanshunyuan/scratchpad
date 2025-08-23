@@ -1,10 +1,19 @@
 // https://crawlee.dev/js/docs/guides/running-in-web-server
 
-import { CheerioCrawler, EnqueueStrategy, log } from "crawlee";
+import {
+  CheerioCrawler,
+  Configuration,
+  EnqueueStrategy,
+  KeyValueStore,
+  log,
+  purgeDefaultStorages,
+  RequestQueueV2,
+  StorageManager,
+} from "crawlee";
 import { FastifyReply, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import z from "zod";
-import TurndownService from 'turndown'
+import TurndownService from "turndown";
 
 export const scrapeSchema = z.object({
   url: z.string().url().min(1),
@@ -34,51 +43,62 @@ const COMMON_PAGES = [
   /.*overview.*/i,
 ];
 
-const EN_PAGES = [
-  /^https?:\/\/[^\/]+\/en\/.*$/
-]
+const EN_PAGES = [/^https?:\/\/[^\/]+\/en\/.*$/];
 
 const OTHER_LANG_PAGES = [
-  /^https?:\/\/[^\/]+\/(nl|fr|de|es|it|pt|da|sv|no|pl|cs|hu|ru|zh|ja|ko)\/.*$/
-]
+  /^https?:\/\/[^\/]+\/(nl|fr|de|es|it|pt|da|sv|no|pl|cs|hu|ru|zh|ja|ko)\/.*$/,
+];
 
 export const scrapeHandler = async (
   req: FastifyRequest<{ Body: z.infer<typeof scrapeSchema> }>,
   res: FastifyReply,
 ) => {
   try {
+    Configuration.set("persistStorage", false);
     const results: string[] = [];
-    const turndownService = new TurndownService()
+    const turndownService = new TurndownService();
+    const requestQueue = await RequestQueueV2.open();
     const crawler = new CheerioCrawler({
+      requestQueue: requestQueue,
       requestHandler: async ({ request, $, enqueueLinks }) => {
-        const title = $("title")
-        log.info(`Page title: ${title.first().text()} on ${request.url}`);
-        await enqueueLinks({
-          regexps: [...COMMON_PAGES, ...EN_PAGES],
-          exclude: [...SOCIAL_MEDIA_DOMAINS, ...OTHER_LANG_PAGES ],
-          strategy: EnqueueStrategy.SameHostname,
-        });
-        $('header').remove()
-        $('script').remove()
-        $('img').remove()
-        $('svg').remove()
-        $('style').remove()
-        $('nav').remove()
-        $('footer').remove()
-        $('noscript').remove()
-        const body = $('body')
-        const content = `${title.first()}\n${body.html()}`
-        const markdown = turndownService.turndown(content)
-        results.push(markdown)
+        try {
+          const title = $("title");
+          log.info(`Page title: ${title.first().text()} on ${request.url}`);
+          await enqueueLinks({
+            regexps: [...COMMON_PAGES, ...EN_PAGES],
+            exclude: [...SOCIAL_MEDIA_DOMAINS, ...OTHER_LANG_PAGES],
+            strategy: EnqueueStrategy.SameHostname,
+            transformRequestFunction: (req) => {
+              return req;
+            },
+          });
+          $("header").remove();
+          $("script").remove();
+          $("img").remove();
+          $("svg").remove();
+          $("style").remove();
+          $("nav").remove();
+          $("footer").remove();
+          $("noscript").remove();
+          const body = $("body");
+          const content = `${title.first()}\n${body.html()}`;
+          const markdown = turndownService.turndown(content);
+          results.push(markdown);
+        } catch (error) {
+          console.error("requestHandler.catch ==> ", error);
+        }
       },
       maxRequestsPerCrawl: 10,
     });
 
-    await crawler.run([req.body.url]);
+    await crawler.addRequests([{ url: req.body.url, uniqueKey: randomUUID() }]);
+    await crawler.run();
+
+    requestQueue.drop();
     res
       .code(200)
       .header("content-type", "application/json")
-      .send({content: results.join('\n')});
+      .send({ content: results.join("\n") });
   } catch (error) {
     req.log.error(error);
     res.code(500).send({ error: (error as Error).message });
