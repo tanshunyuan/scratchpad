@@ -1,0 +1,30 @@
+{
+  "name": "rag-lgraph",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "* https://js.langchain.com/docs/tutorials/rag/",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "tsx -r dotenv/config --watch index.ts"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@langchain/community": "^0.3.55",
+    "@langchain/core": "^0.3.75",
+    "@langchain/langgraph": "^0.4.9",
+    "@langchain/openai": "^0.6.11",
+    "@langchain/qdrant": "^0.1.3",
+    "@pinecone-database/pinecone": "^6.1.2",
+    "cheerio": "^1.1.2",
+    "langchain": "^0.3.33",
+    "tsc": "^2.0.4",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "dotenv": "^16.6.1"
+  }
+}
