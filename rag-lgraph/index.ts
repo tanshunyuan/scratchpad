@@ -34,6 +34,10 @@ const retrieveSchema = z.object({ query: z.string() });
 const retrieve = tool(
   async ({ query }) => {
     console.log("at retrieve...");
+    console.log(
+      "retrieve.query ==> ",
+      JSON.stringify(query, null, 2),
+    );
     const retrievedDocs = await vectorStore.similaritySearch(query);
     console.log(
       "retrieve.retrievedDocs ==> ",
