@@ -1,5 +1,6 @@
 import {
   devLocalIndexerRef,
+  devLocalRetrieverRef,
   devLocalVectorstore,
 } from "@genkit-ai/dev-local-vectorstore";
 import { googleAI } from "@genkit-ai/google-genai";
@@ -91,5 +92,40 @@ export const indexMenu = ai.defineFlow(
         error: err instanceof Error ? err.message : String(err),
       };
     }
+  },
+);
+
+const menuRetriever = devLocalRetrieverRef("menuQA");
+
+export const menuQAFlow = ai.defineFlow(
+  {
+    name: "menuQA",
+    inputSchema: z.object({ query: z.string() }),
+    outputSchema: z.object({ answer: z.string() }),
+  },
+  async ({ query }) => {
+    // retrieve relevant documents
+    const docs = await ai.retrieve({
+      retriever: menuRetriever,
+      query,
+      options: { k: 3 },
+    });
+
+    // generate a response
+    const { text } = await ai.generate({
+      model: googleAI.model("gemini-2.5-flash"),
+      prompt: `
+You are acting as a helpful AI assistant that can answer
+questions about the food available on the menu at Genkit Grub Pub.
+
+Use only the context provided to answer the question.
+If you don't know, do not make up an answer.
+Do not add or change items on the menu.
+
+Question: ${query}`,
+      docs,
+    });
+
+    return { answer: text };
   },
 );
