@@ -1,4 +1,5 @@
 import { AIMessage, BaseMessage, isAIMessage } from "@langchain/core/messages";
+import { CallbackHandler } from "langfuse-langchain";
 
 export const prettyPrint = (message: BaseMessage) => {
   let txt = `[${message._getType()}]: ${message.content}`;
@@ -10,3 +11,12 @@ export const prettyPrint = (message: BaseMessage) => {
   }
   console.log(txt);
 };
+
+
+
+// Initialize Langfuse callback handler
+export const langfuseHandler = new CallbackHandler({
+  publicKey: process.env.LANGFUSE_PUBLIC_KEY,
+  secretKey: process.env.LANGFUSE_SECRET_KEY,
+  baseUrl: "https://us.cloud.langfuse.com"
+});
