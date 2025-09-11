@@ -11,6 +11,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@genkit-ai/dev-local-vectorstore": "^1.19.2",
+    "@genkit-ai/google-genai": "^1.19.2",
     "@langchain/community": "^0.3.55",
     "@langchain/core": "^0.3.75",
     "@langchain/langgraph": "^0.4.9",
@@ -21,12 +23,15 @@
     "langchain": "^0.3.33",
     "langfuse": "^3.38.5",
     "langfuse-langchain": "^3.38.5",
+    "llm-chunk": "^0.0.1",
+    "pdf-parse": "^1.1.1",
     "tsc": "^2.0.4",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@types/pdf-parse": "^1.1.5",
     "dotenv": "^16.6.1"
   }
 }

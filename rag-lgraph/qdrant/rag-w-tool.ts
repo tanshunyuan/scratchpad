@@ -17,7 +17,7 @@ import {
   SystemMessage,
   ToolMessage,
 } from "@langchain/core/messages";
-import { langfuseHandler, prettyPrint } from "./utils";
+import { langfuseHandler, prettyPrint } from "../utils";
 
 const embeddings = new OpenAIEmbeddings({
   model: "text-embedding-3-small",
