@@ -1,16 +1,18 @@
-import { ChatOpenAI, OpenAIEmbeddings } from "@langchain/openai";
-import { MemoryVectorStore } from "langchain/vectorstores/memory";
-import "cheerio";
 import { CheerioWebBaseLoader } from "@langchain/community/document_loaders/web/cheerio";
-import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
-import { pull } from "langchain/hub";
-import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
-import { Document } from "@langchain/core/documents";
+import { tool } from "@langchain/core/tools";
+import { END, MessagesAnnotation, START, StateGraph } from "@langchain/langgraph";
+import { ChatOpenAI, OpenAIEmbeddings } from "@langchain/openai";
 import { QdrantVectorStore } from "@langchain/qdrant";
-import { PineconeStore } from "@langchain/pinecone";
-import { Pinecone as PineconeClient } from "@pinecone-database/pinecone";
+import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
+import { ToolNode, toolsCondition } from "@langchain/langgraph/prebuilt";
 import z from "zod";
+import {
+  AIMessage,
+  HumanMessage,
+  SystemMessage,
+  ToolMessage,
+} from "@langchain/core/messages";
+import { prettyPrint } from './utils'
 
 const embeddings = new OpenAIEmbeddings({
   model: "text-embedding-3-small",
@@ -21,117 +23,131 @@ const vectorStore = await QdrantVectorStore.fromExistingCollection(embeddings, {
   collectionName: "rag-lgraph",
 });
 
-// const pinecone = new PineconeClient({
-//   apiKey: process.env.PINECONE_API_KEY!
-// })
-// const pineconeIndex = pinecone.Index('rag-lgraph');
-// const vectorStore = await PineconeStore.fromExistingIndex(embeddings, {
-//   pineconeIndex,
-//   maxConcurrency: 5
-// })
+// query analysis tool? Rewrite the user query hmm?
 
-/**@description only run when there is a need to add data into the vector db */
-const seedVectorDb = async () => {
-  const pTagSelector = "p";
-  const cheerioLoader = new CheerioWebBaseLoader(
-    "https://lilianweng.github.io/posts/2023-06-23-agent/",
-    {
-      selector: pTagSelector,
-    },
-  );
-
-  const docs = await cheerioLoader.load();
-  const splitter = new RecursiveCharacterTextSplitter({
-    chunkSize: 1000,
-    chunkOverlap: 200,
-  });
-  const allSplits = await splitter.splitDocuments(docs);
-
-  const totalDocuments = allSplits.length;
-  const third = Math.floor(totalDocuments / 3);
-
-  allSplits.forEach((document, i) => {
-    // first third
-    if (i < third) {
-      document.metadata["section"] = "beginning";
-    } else if (i < 2 * third) {
-      document.metadata["section"] = "middle";
-    } else {
-      document.metadata["section"] = "end";
-    }
-  });
-
-  await vectorStore.addDocuments(allSplits);
-};
-
-// await seedVectorDb()
-
-const searchSchema = z.object({
-  query: z.string().describe("Search query to run."),
-  section: z.enum(["beginning", "middle", "end"]).describe("Section to query.")
-})
+const retrieveSchema = z.object({ query: z.string() });
+const retrieve = tool(
+  async ({ query }) => {
+    console.log('at retrieve...')
+    const retrievedDocs = await vectorStore.similaritySearch(query);
+    console.log('retrieve.retrievedDocs ==> ', JSON.stringify(retrievedDocs, null, 2))
+    const serialized = retrievedDocs.map(
+      (doc) => `Source: ${doc.metadata.source} \n Content: ${doc.pageContent}`,
+    ).join('\n')
+    console.log('retrieve.serialized ==> ', JSON.stringify(serialized, null, 2))
+    return [serialized, retrievedDocs]
+  },
+  {
+    name: "retrieve",
+    description: "Retrieve information related to a query",
+    schema: retrieveSchema,
+    responseFormat: "content_and_artifact",
+  },
+);
 
 const llm = new ChatOpenAI({
   model: "gpt-4o-mini",
   temperature: 0,
-})
-
-const structuredLlm = llm.withStructuredOutput(searchSchema);
-
-const promptTemplate = await pull<ChatPromptTemplate>("rlm/rag-prompt");
-
-const InputStateAnnotation = Annotation.Root({
-  question: Annotation<string>,
 });
 
-const StateAnnotation = Annotation.Root({
-  question: Annotation<string>,
-  search: Annotation<z.infer<typeof searchSchema>>,
-  context: Annotation<Document[]>,
-  answer: Annotation<string>,
-});
+const queryOrRespond = async (state: typeof MessagesAnnotation.State) => {
+  console.log('at queryOrRespond...')
+  const llmWithTools = llm.bindTools([retrieve]);
+  console.log('queryOrRespond.state.messages ==> ', JSON.stringify(state.messages, null, 2))
+  const response = await llmWithTools.invoke(state.messages);
+  console.log('queryOrRespond.response ==> ', JSON.stringify(response, null, 2))
+  return { messages: [response] };
+};
 
-const analyze = async (state: typeof InputStateAnnotation.State) => {
-  const result = await structuredLlm.invoke(state.question)
-  return { search: result }
+const tools = new ToolNode([retrieve]);
+
+const generate = async (state: typeof MessagesAnnotation.State) => {
+  let recentToolMessages: ToolMessage[] = [];
+  const lastMessageIdx = state.messages.length - 1;
+  for (let i = lastMessageIdx; i >= 0; i--) {
+    let message = state["messages"][i];
+    if (message instanceof ToolMessage) {
+      recentToolMessages.push(message);
+    } else {
+      break;
+    }
+  }
+  console.log(
+    "generate.recentToolMessages ==> ",
+    JSON.stringify(recentToolMessages, null, 2),
+  );
+
+  let toolMessages = recentToolMessages.reverse();
+  console.log(
+    "generate.toolMessages ==> ",
+    JSON.stringify(toolMessages, null, 2),
+  );
+
+  const docsContent = toolMessages.map((doc) => doc.content).join("\n");
+  console.log(
+    "generate.docsContent ==> ",
+    JSON.stringify(docsContent, null, 2),
+  );
+
+  const systemMessage = `
+    You are an assistant for question-answering tasks.
+    Use the following pieces of retrieved context to answer the question.
+    If you don't know the answer, say that you don't know.
+    Use three sentences maximum and keep the answer concise.
+
+    <retrieved_context>
+    ${docsContent}
+    </retrieved_context>
+    `;
+
+  const conversationMessages = state.messages.filter(
+    (message) =>
+      message instanceof HumanMessage ||
+      message instanceof SystemMessage ||
+      (message instanceof AIMessage && message.tool_calls.length == 0),
+  );
+
+  console.log(`generate.conversationMessages ==> `, JSON.stringify(conversationMessages, null, 2))
+  const prompt = [new SystemMessage(systemMessage), ...conversationMessages];
+  console.log(`generate.prompt ==> `, JSON.stringify(prompt, null, 2))
+
+  // Run
+  const response = await llm.invoke(prompt);
+  return { messages: [response] };
+};
+
+const graphBuilder = new StateGraph(MessagesAnnotation)
+  .addNode('queryOrRespond', queryOrRespond)
+  .addNode('tools', tools)
+  .addNode('generate', generate)
+  .addEdge(START, 'queryOrRespond')
+  .addConditionalEdges('queryOrRespond', toolsCondition, {
+    "__end__": END,
+    tools: 'tools'
+  })
+  .addEdge('tools', 'generate')
+  .addEdge('generate', END)
+
+const graph = graphBuilder.compile()
+
+let inputs1 = { messages: [{ role: "user", content: "Hello" }] };
+
+for await (const step of await graph.stream(inputs1, {
+  streamMode: "values",
+})) {
+  const lastMessage = step.messages[step.messages.length - 1];
+  prettyPrint(lastMessage);
+  console.log("-----\n");
 }
 
-const retrieve = async (state: typeof StateAnnotation.State) => {
-  const retrievedDocs = await vectorStore.similaritySearch(state.search.query, 2, {
-    must: {
-      key: 'metadata.section',
-      match: { value: state.search.section }
-    }
-  });
-  return { context: retrievedDocs };
+let inputs2 = {
+  messages: [{ role: "user", content: "What is Task Decomposition?" }],
 };
 
-const generate = async (state: typeof StateAnnotation.State) => {
-  const docsContent = state.context.map((doc) => doc.pageContent).join("\n");
-  const messages = await promptTemplate.invoke({
-    question: state.question,
-    context: docsContent,
-  });
-  const response = await llm.invoke(messages);
-  return { answer: response.content };
-};
-
-const graph = new StateGraph(StateAnnotation)
-  .addNode('analyze', analyze)
-  .addNode("retrieve", retrieve)
-  .addNode("generate", generate)
-  .addEdge(START, "analyze")
-  .addEdge("analyze", "retrieve")
-  .addEdge("retrieve", "generate")
-  .addEdge("generate", END)
-  .compile();
-
-let inputs = { question: "What does the end of the post say Task Decomposition?" };
-console.log(inputs)
-console.log("\n====\n");
-for await (const chunk of await graph.stream(inputs, {
-  streamMode: "updates",
+for await (const step of await graph.stream(inputs2, {
+  streamMode: "values",
 })) {
-  console.log(chunk);
-  console.log("\n====\n");
+  const lastMessage = step.messages[step.messages.length - 1];
+  prettyPrint(lastMessage);
+  console.log("-----\n");
 }
