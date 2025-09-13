@@ -27,6 +27,7 @@
     "langfuse": "^3.38.5",
     "langfuse-langchain": "^3.38.5",
     "llm-chunk": "^0.0.1",
+    "nanoid": "^5.1.5",
     "pdf-parse": "^1.1.1",
     "tsc": "^2.0.4",
     "tsx": "^4.20.5",
