@@ -11,6 +11,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@genkit-ai/compat-oai": "^1.19.2",
     "@genkit-ai/dev-local-vectorstore": "^1.19.2",
     "@genkit-ai/firebase": "^1.19.2",
     "@genkit-ai/google-genai": "^1.19.2",
