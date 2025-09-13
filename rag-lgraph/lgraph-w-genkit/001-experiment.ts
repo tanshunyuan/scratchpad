@@ -112,4 +112,4 @@ const performQuery = async () => {
 }
 
 // seedFirestoreEmbeddings()
-performQuery()
+// performQuery()
