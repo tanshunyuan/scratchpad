@@ -341,7 +341,8 @@ let inputs2 = {
     {
       role: "user",
       content:
-        "Recommend a dessert from the menu while avoiding dairy and nuts",
+        // "Recommend a dessert from the menu while avoiding dairy and nuts",
+        "Recommend meals with steak",
     },
   ],
 };
