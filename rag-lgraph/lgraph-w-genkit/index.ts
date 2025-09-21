@@ -1,4 +1,5 @@
 import openAI from "@genkit-ai/compat-oai/openai";
+import { PromptTemplate } from "@langchain/core/prompts";
 import { defineFirestoreRetriever } from "@genkit-ai/firebase";
 import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import {
@@ -84,22 +85,60 @@ const uploadAndSeedPDFs = async () => {
     const loader = new PDFLoader(filePath, {
       parsedItemSeparator: "",
     });
-    const docs = await loader.load();
+    const doc = await loader.load();
+    const fullTextDoc = doc.map(item => item.pageContent).join('\n')
 
     const splitter = new RecursiveCharacterTextSplitter({
       chunkSize: 1000,
       chunkOverlap: 200,
     });
 
-    const allSplits = await splitter.splitDocuments(docs);
+    const allSplits = await splitter.splitDocuments(doc);
 
     const embeddingBatch = firestore.batch();
 
-    for (const split of allSplits) {
+    const extraContextPrompt = PromptTemplate.fromTemplate(`
+      <document>
+      {WHOLE_DOCUMENT}
+      </document>
+      Here is the chunk we want to situate within the whole document
+      <chunk>
+      {CHUNK_CONTENT}
+      </chunk>
+      Please give a short succinct context to situate this chunk within the overall document for the purposes of improving search retrieval of the chunk. Answer only with the succinct context and nothing else.
+      `);
+
+    const model = new ChatOpenAI({
+      model: 'gpt-4.1-nano',
+      maxTokens: 200,
+    })
+
+    const allPrompts = await Promise.all(
+      allSplits.map(split =>
+        extraContextPrompt.invoke({
+          WHOLE_DOCUMENT: fullTextDoc,
+          CHUNK_CONTENT: split.pageContent,
+        })
+      )
+    );
+
+    const batchResults = await model.batch(allPrompts, {
+      maxConcurrency: 10, // Control concurrency to respect rate limits
+    });
+
+    // Combine results with original chunks
+    const chunksWithContext = allSplits.map((split, index) => ({
+      split,
+      context: batchResults[index].content || batchResults[index].text || '',
+    }));
+
+    for (const { split, context } of chunksWithContext) {
+      const finalContent = `${context} --- ${split.pageContent}`;
+
       const embedding = (
         await ai.embed({
           embedder: embedder,
-          content: split.pageContent,
+          content: finalContent,
           options: {
             outputDimensionality: 1536,
           },
@@ -109,7 +148,7 @@ const uploadAndSeedPDFs = async () => {
       const docRef = embeddingCollection.doc();
       embeddingBatch.set(docRef, {
         embedding: FieldValue.vector(embedding),
-        content: split.pageContent,
+        content: finalContent,
         userId: USER_ID,
         fileId: pdf.id,
         metadata: {
