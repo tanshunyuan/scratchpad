@@ -69,6 +69,7 @@ const PDFS = [
 ];
 const embeddingCollection = firestore.collection("lgraph-firestore");
 
+
 const uploadAndSeedPDFs = async () => {
   for (const pdf of PDFS) {
     await userCollection.doc(USER_ID).set(
