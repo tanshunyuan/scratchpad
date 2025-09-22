@@ -69,6 +69,7 @@ const PDFS = [
 ];
 const embeddingCollection = firestore.collection("lgraph-firestore");
 
+
 const uploadAndSeedPDFs = async () => {
   for (const pdf of PDFS) {
     await userCollection.doc(USER_ID).set(
@@ -86,7 +87,7 @@ const uploadAndSeedPDFs = async () => {
       parsedItemSeparator: "",
     });
     const doc = await loader.load();
-    const fullTextDoc = doc.map((item) => item.pageContent).join("\n");
+    const fullTextDoc = doc.map(item => item.pageContent).join('\n')
 
     const splitter = new RecursiveCharacterTextSplitter({
       chunkSize: 1000,
@@ -109,17 +110,17 @@ const uploadAndSeedPDFs = async () => {
       `);
 
     const model = new ChatOpenAI({
-      model: "gpt-4.1-nano",
+      model: 'gpt-4.1-nano',
       maxTokens: 200,
-    });
+    })
 
     const allPrompts = await Promise.all(
-      allSplits.map((split) =>
+      allSplits.map(split =>
         extraContextPrompt.invoke({
           WHOLE_DOCUMENT: fullTextDoc,
           CHUNK_CONTENT: split.pageContent,
-        }),
-      ),
+        })
+      )
     );
 
     const batchResults = await model.batch(allPrompts, {
@@ -129,7 +130,7 @@ const uploadAndSeedPDFs = async () => {
     // Combine results with original chunks
     const chunksWithContext = allSplits.map((split, index) => ({
       split,
-      context: batchResults[index].content || batchResults[index].text || "",
+      context: batchResults[index].content || batchResults[index].text || '',
     }));
 
     for (const { split, context } of chunksWithContext) {
@@ -191,11 +192,14 @@ const retrieve = tool(
       options: {
         where: {
           userId: USER_ID,
-          // fileId: PDFS[1].id,
+          fileId: PDFS[1].id,
         },
       },
     });
-    console.log("retrieve.retrievedDocs.length ==> ", retrievedDocs.length);
+    console.log(
+      "retrieve.retrievedDocs.length ==> ",
+      retrievedDocs.length
+    );
     console.log(
       "retrieve.retrievedDocs ==> ",
       JSON.stringify(retrievedDocs, null, 2),
@@ -203,11 +207,7 @@ const retrieve = tool(
 
     const serialized = retrievedDocs
       .map((doc) => {
-        return `
-        Article Title: ${doc.metadata.metadata.source.split("/").pop().split(".").shift()}
-        Page Number: ${doc.metadata.metadata.loc.pageNumber}
-        Content: ${doc.text}
-        `;
+        return `Content: ${doc.text}`;
       })
       .join("\n");
     console.log(
@@ -229,29 +229,6 @@ const llm = new ChatOpenAI({
   model: "gpt-4o-mini",
   temperature: 0,
 });
-
-const citedAnswerSchema = z
-  .object({
-    answer: z
-      .string()
-      .describe(
-        "The answer to the user question, which must be strictly based only on the provided sources.",
-      ),
-    citations: z
-      .array(
-        z.object({
-          pageNumber: z.number().describe("The page number of the cited source."),
-          articleTitle: z.string().describe("The title of the article the citation comes from."),
-        }),
-      )
-      .describe(
-        "An array of citations that support the answer. Each citation must include both the article title and page number of the specific source used.",
-      ),
-  })
-  .describe("A cited answer with references to the provided sources, ensuring transparency and traceability.");
-
-
-const llmWithStructuredOutput = llm.withStructuredOutput(citedAnswerSchema);
 
 const queryOrRespond = async (state: typeof MessagesAnnotation.State) => {
   console.log("at queryOrRespond...");
@@ -300,6 +277,17 @@ const generate = async (state: typeof MessagesAnnotation.State) => {
     JSON.stringify(docsContent, null, 2),
   );
 
+  // const systemMessage = `
+  //   You are an assistant for question-answering tasks.
+  //   Use the following pieces of retrieved context to answer the question.
+  //   If you don't know the answer, say that you don't know.
+  //   Use three sentences maximum and keep the answer concise.
+
+  //   <retrieved_context>
+  //   ${docsContent}
+  //   </retrieved_context>
+  //   `;
+
   const systemMessage = `
     You are acting as a helpful AI assistant that can answer
     questions about the food available on the menu.
@@ -307,10 +295,6 @@ const generate = async (state: typeof MessagesAnnotation.State) => {
     Use only the context provided to answer the question.
     If you don't know, do not make up an answer.
     Do not add or change items on the menu.
-
-    IMPORTANT: You must provide citations for your answer. Reference the Article Title and Page Number
-    from the provided context to support your response. Include relevant quotes
-    and page numbers when available.
 
     <retrieved_context>
     ${docsContent}
@@ -331,15 +315,11 @@ const generate = async (state: typeof MessagesAnnotation.State) => {
   const prompt = [new SystemMessage(systemMessage), ...conversationMessages];
   console.log(`generate.prompt ==> `, JSON.stringify(prompt, null, 2));
 
-  // Run with structured output
-  const structuredResponse = await llmWithStructuredOutput.invoke(prompt, {
+  // Run
+  const response = await llm.invoke(prompt, {
     callbacks: [langfuseHandler],
   });
-  console.log("generate.structuredResponse ==> ", structuredResponse);
-  return {
-    messages: structuredResponse.answer,
-    citations: structuredResponse.citations,
-  };
+  return { messages: [response] };
 };
 
 const graphBuilder = new StateGraph(MessagesAnnotation)
