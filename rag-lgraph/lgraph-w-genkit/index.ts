@@ -201,15 +201,45 @@ const retrieve = tool(
       JSON.stringify(retrievedDocs, null, 2),
     );
 
-    const serialized = retrievedDocs
-      .map((doc) => {
-        return `
-        Article Title: ${doc.metadata.metadata.source.split("/").pop().split(".").shift()}
-        Page Number: ${doc.metadata.metadata.loc.pageNumber}
-        Content: ${doc.text}
-        `;
-      })
-      .join("\n");
+    const serialized = [
+      `# Brand Guidelines Retrieval Results`,
+      `**Query:** "${query}"`,
+      `**Documents Retrieved:** ${retrievedDocs.length}`,
+      "",
+      retrievedDocs
+        .map((doc, index) => {
+          const rawText = doc.text;
+          const [summary, content] = rawText.split("---");
+
+          const sourceInfo = doc.metadata?.metadata?.source
+            ? `Page ${doc.metadata.metadata.loc?.pageNumber || "Unknown"} of ${doc.metadata.metadata.source.split("/").pop()}`
+            : "Unknown source";
+
+          return `
+          ## Section ${index + 1}
+          **Source:** ${sourceInfo}
+
+          ### Summary
+          ${summary.trim()}
+
+          ### Content
+          ${content.trim()}
+          ---
+
+          `;
+        })
+        .join("\n\n"),
+    ].join("\n");
+
+    // const serialized = retrievedDocs
+    //   .map((doc) => {
+    //     return `
+    //     Article Title: ${doc.metadata.metadata.source.split("/").pop().split(".").shift()}
+    //     Page Number: ${doc.metadata.metadata.loc.pageNumber}
+    //     Content: ${doc.text}
+    //     `;
+    //   })
+    //   .join("\n");
     console.log(
       "retrieve.serialized ==> ",
       JSON.stringify(serialized, null, 2),
@@ -240,16 +270,21 @@ const citedAnswerSchema = z
     citations: z
       .array(
         z.object({
-          pageNumber: z.number().describe("The page number of the cited source."),
-          articleTitle: z.string().describe("The title of the article the citation comes from."),
+          pageNumber: z
+            .number()
+            .describe("The page number of the cited source."),
+          articleTitle: z
+            .string()
+            .describe("The title of the article the citation comes from."),
         }),
       )
       .describe(
         "An array of citations that support the answer. Each citation must include both the article title and page number of the specific source used.",
       ),
   })
-  .describe("A cited answer with references to the provided sources, ensuring transparency and traceability.");
-
+  .describe(
+    "A cited answer with references to the provided sources, ensuring transparency and traceability.",
+  );
 
 const llmWithStructuredOutput = llm.withStructuredOutput(citedAnswerSchema);
 
