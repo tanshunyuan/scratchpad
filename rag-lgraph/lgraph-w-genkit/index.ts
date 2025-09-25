@@ -1,4 +1,5 @@
 import openAI from "@genkit-ai/compat-oai/openai";
+import { marked } from 'marked';
 import { PromptTemplate } from "@langchain/core/prompts";
 import { defineFirestoreRetriever } from "@genkit-ai/firebase";
 import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
@@ -231,18 +232,24 @@ const retrieve = tool(
         .join("\n\n"),
     ].join("\n");
 
-    // const serialized = retrievedDocs
-    //   .map((doc) => {
-    //     return `
-    //     Article Title: ${doc.metadata.metadata.source.split("/").pop().split(".").shift()}
-    //     Page Number: ${doc.metadata.metadata.loc.pageNumber}
-    //     Content: ${doc.text}
-    //     `;
-    //   })
-    //   .join("\n");
     console.log(
       "retrieve.serialized ==> ",
       JSON.stringify(serialized, null, 2),
+    );
+
+    const formattedRetrievedDocs = retrievedDocs.map((doc) => {
+      const rawText = doc.text;
+      const [summary, content] = rawText.split("---");
+      return {
+        content: marked.parse(content),
+        metadata: {
+          pageNumber: doc.metadata.metadata.loc.pageNumber
+        }
+      }
+    })
+    console.log(
+      "retrieve.formattedRetrievedDocs ==> ",
+      JSON.stringify(formattedRetrievedDocs, null, 2),
     );
     // [content(serialized)_and_artifact(retrievedDocs)]
     return [serialized, retrievedDocs];
