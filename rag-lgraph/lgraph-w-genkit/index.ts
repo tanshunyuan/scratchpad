@@ -185,6 +185,9 @@ const retrieve = tool(
       vectorField: "embedding",
       embedder,
       distanceMeasure: "COSINE",
+      distanceThreshold: 0.7,
+      distanceResultField: 'distance_delta'
+
     });
     const retrievedDocs = await ai.retrieve({
       retriever: menuRetriever,
@@ -232,10 +235,10 @@ const retrieve = tool(
         .join("\n\n"),
     ].join("\n");
 
-    console.log(
-      "retrieve.serialized ==> ",
-      JSON.stringify(serialized, null, 2),
-    );
+    // console.log(
+    //   "retrieve.serialized ==> ",
+    //   JSON.stringify(serialized, null, 2),
+    // );
 
     const formattedRetrievedDocs = retrievedDocs.map((doc) => {
       const rawText = doc.text;
@@ -247,10 +250,10 @@ const retrieve = tool(
         }
       }
     })
-    console.log(
-      "retrieve.formattedRetrievedDocs ==> ",
-      JSON.stringify(formattedRetrievedDocs, null, 2),
-    );
+    // console.log(
+    //   "retrieve.formattedRetrievedDocs ==> ",
+    //   JSON.stringify(formattedRetrievedDocs, null, 2),
+    // );
     // [content(serialized)_and_artifact(retrievedDocs)]
     return [serialized, retrievedDocs];
   },
