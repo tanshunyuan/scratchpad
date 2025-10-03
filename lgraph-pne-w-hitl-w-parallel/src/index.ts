@@ -3,6 +3,7 @@ import {
   END,
   MemorySaver,
   messagesStateReducer,
+  Send,
   START,
   StateGraph,
 } from "@langchain/langgraph";
@@ -20,27 +21,42 @@ import { isEmpty } from "lodash-es";
 
 interface Step {
   id: string;
-  description: string;
+  step: string;
   dependencies: string[];
   completed: boolean;
 }
 type Plan = Step[];
+type PastSteps = Record<string, [string, string]>;
 
 export const PlanExecuteState = Annotation.Root({
   input: Annotation<string>({
     reducer: (x, y) => y ?? x ?? "",
   }),
-  plan: Annotation<Plan | string[]>({
-    reducer: (x, y) => y ?? x ?? [],
+  plan: Annotation<string[]>({
+    reducer: (state, update) => update ?? state ?? [],
     default: () => [],
   }),
-  // new Map<string, [string, string]>
-  // pastSteps: Annotation<[string, string][]>({
-  //   reducer: (x, y) => x.concat(y),
-  // }),
-  pastSteps: Annotation<Map<string, [string, string]>>({
-    reducer: (x, y) => new Map([...x, ...y]),
-    default: () => new Map(),
+  // PAIN
+  structuredPlan: Annotation<Plan>({
+    reducer: (state, update) => {
+      const steps = [...(state as Step[])];
+
+      for (const step of update as Step[]) {
+        const idx = steps.findIndex((s) => s.id === step.id);
+        if (idx >= 0) {
+          steps[idx] = { ...steps[idx], ...step }; // update existing
+        } else {
+          steps.push(step); // add new
+        }
+      }
+
+      return steps;
+    },
+    default: () => [],
+  }),
+  pastSteps: Annotation<PastSteps>({
+    reducer: (x, y) => ({ ...x, ...y }),
+    default: () => ({}),
   }),
   batches: Annotation<string[][]>({
     reducer: (x, y) => y ?? x ?? [],
@@ -52,8 +68,27 @@ export const PlanExecuteState = Annotation.Root({
   }),
 });
 
+const MOCK = true;
+
 type State = typeof PlanExecuteState.State;
 const plannerAgent = async (state: State) => {
+  if (MOCK) {
+    return {
+      plan: [
+        "Research and outline the key milestones in Dunlop's company history, focusing on innovation and heritage relevant to motorcycle riders.",
+        "Write an engaging introduction that highlights Dunlop's significance in the tyre industry and connects with the target audience of motorcycle riders aged 18-50.",
+        "Describe Dunlop's early developments and breakthroughs in tyre technology, emphasizing their impact on motorcycle performance and safety.",
+        "Detail Dunlop's contributions to motorsports and how these achievements influenced their product innovation.",
+        "Explain recent advancements and current products from Dunlop that appeal to modern motorcycle riders.",
+        "Incorporate quotes or testimonials from motorcycle riders about their experiences with Dunlop tyres to create authenticity and connection.",
+        "Conclude the article by summarizing Dunlop's legacy and continued commitment to innovation, encouraging readers to consider Dunlop for their motorcycle needs.",
+        "Edit the article for clarity, tone, and flow to ensure it is engaging and accessible for the 18–50 motorcycle rider demographic.",
+        'Add a compelling title "Dunlop: Innovation and Heritage in Tyres and Beyond" and finalize the article for publication.',
+      ],
+    };
+  }
+
+  // Actual
   const plannerSystemPrompt = SystemMessagePromptTemplate.fromTemplate(`
     # Role
     You are a **planning agent**. Your task is to create a **clear, detailed, and executable step-by-step plan** to create an essay based on the objective.
@@ -61,11 +96,18 @@ const plannerAgent = async (state: State) => {
     # Plan Requirements
     - Create 5-10 individual tasks that yield the correct result when executed
     - Each step must include WHO does WHAT and HOW (when relevant)
+    - Each step should focus on ONE primary task or deliverable to optimize execution time
+
+    # Planning Considerations
+    - Focus on content creation, research, and specialized analysis tasks
+    - Each step should be independently executable without requiring outputs from multiple previous steps to be combined
 
     # Output Format
     - Return ONLY a list of actionable steps
     - Each step should be 1-2 sentences maximum and focus on ONE primary deliverable
+    - Avoid bundling multiple distinct tasks (formatting, metadata, compilation) into single steps
     `);
+
   const plannerHumanMessagePrompt = HumanMessagePromptTemplate.fromTemplate(`
     # Objective
     {objective}
@@ -92,12 +134,75 @@ const plannerAgent = async (state: State) => {
   const plan = await planner.invoke({
     objective: state.input,
   });
+
+  console.log("plannerAgent.plan ==> ", plan.steps);
   return {
     plan: plan.steps,
   };
 };
 
 const dependencyAnalyzerAgent = async (state: State) => {
+  if (MOCK) {
+    return {
+      structuredPlan: [
+        {
+          id: "step1",
+          step: "Research and outline the key milestones in Dunlop's company history, focusing on innovation and heritage relevant to motorcycle riders.",
+          dependencies: [],
+          completed: false,
+        },
+        {
+          id: "step2",
+          step: "Write an engaging introduction that highlights Dunlop's significance in the tyre industry and connects with the target audience of motorcycle riders aged 18-50.",
+          dependencies: [],
+          completed: false,
+        },
+        {
+          id: "step3",
+          step: "Describe Dunlop's early developments and breakthroughs in tyre technology, emphasizing their impact on motorcycle performance and safety.",
+          dependencies: ["step1"],
+          completed: false,
+        },
+        {
+          id: "step4",
+          step: "Detail Dunlop's contributions to motorsports and how these achievements influenced their product innovation.",
+          dependencies: ["step1"],
+          completed: false,
+        },
+        {
+          id: "step5",
+          step: "Explain recent advancements and current products from Dunlop that appeal to modern motorcycle riders.",
+          dependencies: ["step1"],
+          completed: false,
+        },
+        {
+          id: "step6",
+          step: "Incorporate quotes or testimonials from motorcycle riders about their experiences with Dunlop tyres to create authenticity and connection.",
+          dependencies: [],
+          completed: false,
+        },
+        {
+          id: "step7",
+          step: "Conclude the article by summarizing Dunlop's legacy and continued commitment to innovation, encouraging readers to consider Dunlop for their motorcycle needs.",
+          dependencies: ["step1"],
+          completed: false,
+        },
+        {
+          id: "step8",
+          step: "Edit the article for clarity, tone, and flow to ensure it is engaging and accessible for the 18–50 motorcycle rider demographic.",
+          dependencies: ["step2", "step3", "step4", "step5", "step6", "step7"],
+          completed: false,
+        },
+        {
+          id: "step9",
+          step: 'Add a compelling title "Dunlop: Innovation and Heritage in Tyres and Beyond" and finalize the article for publication.',
+          dependencies: ["step8"],
+          completed: false,
+        },
+      ],
+    };
+  }
+
   const dependencyAnalyzerSchema = z
     .object({
       steps: z
@@ -136,13 +241,33 @@ const dependencyAnalyzerAgent = async (state: State) => {
 
   const dependencyAnalyzerSystemPrompt =
     SystemMessagePromptTemplate.fromTemplate(`
-    # Instructions
-    1. Assign each step a unique ID (e.g., "step1", "step2", etc.).
-    2. Preserve the exact step from the input plan for each step.
-    3. Infer dependencies based on step content
-    4. Set "completed": false for all steps.
-    5. Ensure dependencies are acyclic (no circular dependencies).
-    6. Only include step IDs that exist in the plan as dependencies.
+      # Role
+      You are a **dependency analyzer**. Your task is to analyze a list of sequential steps and determine their logical dependencies to enable parallel execution where possible.
+
+      # Instructions
+      1. Assign each step a unique ID (e.g., "step1", "step2", etc.).
+      2. Preserve the exact step text from the input plan for each step.
+      3. Infer dependencies based on these criteria:
+         - **Information dependency**: Does this step require outputs/information from previous steps?
+         - **Logical ordering**: Must this step happen after another for the result to make sense?
+         - **Resource dependency**: Does this step build upon or modify artifacts from previous steps?
+      4. Set "completed": false for all steps.
+      5. Ensure dependencies are acyclic (no circular dependencies).
+      6. Only include step IDs that exist in the plan as dependencies.
+
+      # Dependency Analysis Guidelines
+      - **Research/data gathering steps** can often run in parallel if they investigate different topics
+      - **Writing steps** typically depend on completed research/analysis steps
+      - **Editing/formatting steps** depend on writing steps being completed
+      - **Outline/structure steps** should precede detailed writing steps
+      - If a step can logically start without waiting for another, it should have NO dependency on that step
+
+      # Constraints
+      - Dependencies must form a Directed Acyclic Graph (DAG)
+      - A step cannot depend on itself
+      - A step cannot depend on steps that don't exist in the plan
+      - Minimize dependencies: only declare a dependency if the step truly cannot begin without it
+      - When in doubt about whether a dependency exists, prefer independence to maximize parallelization
     `);
 
   const dependencyAnalyzerHumanPrompt =
@@ -171,22 +296,24 @@ const dependencyAnalyzerAgent = async (state: State) => {
   console.log(result.steps);
 
   return {
-    plan: result.steps,
+    structuredPlan: result.steps,
   };
 };
 
 const batcherStep = async (state: State) => {
   const independent = [];
   const dependent = [];
-  const plan = state.plan as Plan;
+  const plan = state.structuredPlan
+  const pastSteps = state.pastSteps;
 
   for (const step of plan) {
     const dependencies = step.dependencies;
-    const noDependencies = isEmpty(dependencies);
     if (step.completed) {
       // skip
       continue;
-    } else if (noDependencies) {
+    }
+    const noDependencies = isEmpty(dependencies);
+    if (noDependencies) {
       independent.push(step.id);
     } else {
       dependent.push(step.id);
@@ -203,26 +330,62 @@ const batcherStep = async (state: State) => {
   for (const item of dependent) {
     batches.push([item]);
   }
-  console.log(batches);
+  console.log("batherStep.batches ==> ", batches);
 
   return {
     batches,
   };
 };
 
-const executorAgent = async (state: State) => {
-  const processingBatch = state.batches[0]
-  const plan = state.plan as Plan
-  if(processingBatch.length > 1 ){
-    const promises = []
-    for (const stepId of processingBatch){
-      const foundStep = plan.find(step => step.id === stepId)
-      // wait to invoke a llm
-      promises.push(foundStep)
-    }
-    console.log(promises)
-  }
+const continueToExecutorAgentRouter = async (state: State) => {
+  const processingBatch = state.batches[0];
+  const structuredPlan = state.structuredPlan;
+  const foundSteps = structuredPlan.filter((item) => processingBatch.includes(item.id));
+  console.log("continueToExecutorAgentRouter.foundSteps ==> ", foundSteps);
+  return foundSteps.map(
+    (step) =>
+      new Send("executor", {
+        step,
+        structuredPlan: structuredPlan,
+        pastSteps: state.pastSteps,
+      }),
+  );
+};
 
+const executorAgent = async (state: {
+  step: Step;
+  structuredPlan: Plan;
+  pastSteps: PastSteps;
+}) => {
+  console.log("executorAgent.state ==> ", state);
+  if (MOCK) {
+    // assume llm call is done
+    const updatedStructuredPlan = state.structuredPlan.map((step) => {
+      if (step.id === state.step.id) {
+        console.log('heiman')
+        return {
+          ...step,
+          completed: true,
+        };
+      }
+    }).filter(Boolean)
+
+    const updatedPastSteps = state.pastSteps;
+    updatedPastSteps[state.step.id] = [
+      state.step.step,
+      `ANS FOR: ${state.step.step}`,
+    ];
+
+    return {
+      ...state,
+      structuredPlan: updatedStructuredPlan,
+      pastSteps: updatedPastSteps,
+    };
+  }
+};
+
+const aggregateNode = async (state: State) => {
+  console.log(`aggregateNode.state ==> `, state);
 };
 
 /**@todo probably need a router that checks AFTER executor is done, if dependency_analyzer still has stuff continue executing, else just continue */
@@ -231,11 +394,13 @@ const workflow = new StateGraph(PlanExecuteState)
   .addNode("dependency_analyzer", dependencyAnalyzerAgent)
   .addNode("batcher", batcherStep)
   .addNode("executor", executorAgent)
+  .addNode("aggregate_node", aggregateNode)
   .addEdge(START, "planner")
   .addEdge("planner", "dependency_analyzer")
   .addEdge("dependency_analyzer", "batcher")
-  .addEdge("batcher", "executor")
-  .addEdge("executor", END);
+  .addConditionalEdges("batcher", continueToExecutorAgentRouter)
+  .addEdge("executor", "aggregate_node")
+  .addEdge("aggregate_node", END);
 
 const checkpointer = new MemorySaver();
 
@@ -243,137 +408,14 @@ const app = workflow.compile({
   checkpointer,
 });
 
-// await app.stream(
-//   {
-//     input: `Write a Short-form article about Dunlop company history titled "Dunlop: Innovation and Heritage in Tyres and Beyond"  for Motorcycle riders (ages 18–50).`,
-//   },
-//   {
-//     streamMode: "values",
-//     configurable: {
-//       thread_id: 1234,
-//     },
-//   },
-// );
-
-const SAMPLE_STEPS = [
+await app.stream(
   {
-    id: "step1",
-    step: "Research Dunlop company's history focusing on key innovations and milestones, with an emphasis on relevance to motorcycle riders, by using credible sources such as official company websites and industry publications.",
-    dependencies: [],
-    completed: false,
+    input: `Write a Short-form article about Dunlop company history titled "Dunlop: Innovation and Heritage in Tyres and Beyond"  for Motorcycle riders (ages 18–50).`,
   },
   {
-    id: "step2",
-    step: "Outline the article structure including an engaging introduction, main body covering history and innovations, and a concise conclusion highlighting heritage and relevance to the target audience.",
-    dependencies: ["step1"],
-    completed: false,
+    streamMode: "values",
+    configurable: {
+      thread_id: 1234,
+    },
   },
-  {
-    id: "step3",
-    step: "Write an attention-grabbing introduction that contextualizes Dunlop's significance in the motorcycle community, targeting readers aged 18-50.",
-    dependencies: ["step2"],
-    completed: false,
-  },
-  {
-    id: "step4",
-    step: "Draft the main body paragraphs detailing Dunlop's founding, major technological advancements in tyre development, and its impact on motorcycle performance and safety.",
-    dependencies: ["step2", "step1"],
-    completed: false,
-  },
-  {
-    id: "step5",
-    step: "Include specific examples or anecdotes about Dunlop's innovations that directly benefit motorcycle riders to enhance engagement.",
-    dependencies: ["step4"],
-    completed: false,
-  },
-  {
-    id: "step6",
-    step: "Write a conclusion that summarizes Dunlop's contributions to the tyre industry and reinforces its heritage and ongoing innovation.",
-    dependencies: ["step4"],
-    completed: false,
-  },
-  {
-    id: "step7",
-    step: "Edit the article for clarity, tone, and engagement, ensuring the language is accessible and appealing to the target demographic of motorcycle riders aged 18-50.",
-    dependencies: ["step3", "step5", "step6"],
-    completed: false,
-  },
-  {
-    id: "step8",
-    step: "Proofread the article to eliminate grammatical errors and ensure correct spelling, particularly of technical terms related to motorcycles and tyres.",
-    dependencies: ["step7"],
-    completed: false,
-  },
-  {
-    id: "step9",
-    step: "Format the article to be concise and easy to read, using short paragraphs, subheadings, and bullet points if appropriate, to suit online reading preferences of motorcycle enthusiasts.",
-    dependencies: ["step8"],
-    completed: false,
-  },
-  {
-    id: "step10",
-    step: "Finalize the article with a compelling title 'Dunlop: Innovation and Heritage in Tyres and Beyond', and prepare it for publication on a platform frequented by motorcycle riders.",
-    dependencies: ["step9"],
-    completed: false,
-  },
-];
-const SAMPLE_STEPS_2 = [
-  {
-    id: "step1",
-    description: "Define structure...",
-    dependencies: [],
-    completed: false,
-  },
-  {
-    id: "step2",
-    description: "Research history...",
-    dependencies: [],
-    completed: false,
-  },
-  {
-    id: "step3",
-    description: "Summarize development...",
-    dependencies: ["step2"],
-    completed: false,
-  },
-  {
-    id: "step4",
-    description: "Document moments...",
-    dependencies: [],
-    completed: false,
-  },
-  {
-    id: "step5",
-    description: "Investigate diversification...",
-    dependencies: [],
-    completed: false,
-  },
-  {
-    id: "step6",
-    description: "Fact-check...",
-    dependencies: ["step2", "step3", "step4", "step5"],
-    completed: false,
-  },
-  {
-    id: "step7",
-    description: "Draft introduction...",
-    dependencies: ["step1", "step6"],
-    completed: false,
-  },
-  {
-    id: "step8",
-    description: "Compose body...",
-    dependencies: ["step1", "step6"],
-    completed: false,
-  },
-  {
-    id: "step9",
-    description: "Write conclusion...",
-    dependencies: ["step1", "step6"],
-    completed: false,
-  },
-];
-
-// await batcherStep({ plan: SAMPLE_STEPS });
-const batchRes = await batcherStep({ plan: SAMPLE_STEPS_2 });
-await executorAgent({plan: SAMPLE_STEPS_2, batches: batchRes.batches})
+);
