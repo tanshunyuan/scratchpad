@@ -1,5 +1,6 @@
 import {
   Annotation,
+  Command,
   END,
   MemorySaver,
   messagesStateReducer,
@@ -68,7 +69,7 @@ export const PlanExecuteState = Annotation.Root({
   }),
 });
 
-const MOCK = true;
+const MOCK = false;
 
 type State = typeof PlanExecuteState.State;
 const plannerAgent = async (state: State) => {
@@ -304,7 +305,8 @@ const batcherStep = async (state: State) => {
   const independent = [];
   const dependent = [];
   const plan = state.structuredPlan;
-  const pastSteps = state.pastSteps;
+  const executedIds = new Set(Object.keys(state.pastSteps));
+  console.log("batcherStep.state ==> ", state);
 
   for (const step of plan) {
     const dependencies = step.dependencies;
@@ -326,11 +328,11 @@ const batcherStep = async (state: State) => {
    * @example
    * [[4,5,6,7],[1],[2],[3]]
    */
-  const batches = [independent];
+  const batches = independent.length > 0 ? [independent] : [];
   for (const item of dependent) {
     batches.push([item]);
   }
-  console.log("batherStep.batches ==> ", batches);
+  console.log("batcherStep.batches ==> ", batches);
 
   return {
     batches,
@@ -359,13 +361,12 @@ const executorAgent = async (state: {
   structuredPlan: Plan;
   pastSteps: PastSteps;
 }) => {
-  console.log("executorAgent.state ==> ", state);
   if (MOCK) {
+    // need to check if step requires dependency or not
     // assume llm call is done
     const updatedStructuredPlan = state.structuredPlan
       .map((step) => {
         if (step.id === state.step.id) {
-          console.log("heiman");
           return {
             ...step,
             completed: true,
@@ -386,19 +387,90 @@ const executorAgent = async (state: {
       pastSteps: updatedPastSteps,
     };
   }
+
+  const formattedStepDependencies = state.step.dependencies
+    .map((depId) => {
+      const [step, result] = state.pastSteps[depId];
+      return `
+    ## Step taken
+    ${step}
+    ## Result
+    ${result}
+    `;
+    })
+    .join("\n\n");
+  const prompt = ChatPromptTemplate.fromTemplate(`
+    {contextIfNeeded}
+
+    # Current Task
+    {currentTask}
+    `);
+
+  const filledPrompt = await prompt.invoke({
+    currentTask: state.step.step,
+    contextIfNeeded: isEmpty(formattedStepDependencies)
+      ? "No context required"
+      : `# Context \ ${formattedStepDependencies}`,
+  });
+
+  const model = new ChatOpenAI({
+    model: "gpt-4.1-mini",
+  });
+
+  const result = await model.invoke(filledPrompt);
+  const updatedStructuredPlan = state.structuredPlan
+    .map((step) => {
+      if (step.id === state.step.id) {
+        return {
+          ...step,
+          completed: true,
+        };
+      }
+    })
+    .filter(Boolean);
+
+  const updatedPastSteps = state.pastSteps;
+  updatedPastSteps[state.step.id] = [state.step.step, result.content];
+
+  return {
+    ...state,
+    structuredPlan: updatedStructuredPlan,
+    pastSteps: updatedPastSteps,
+  };
 };
 
 const shouldContinueToBatcherOrAggregate = (state: State) => {
+  console.log("shouldContinueToBatcherOrAggregate.state ==> ", state);
   const isAllCompleted = state.structuredPlan.every((step) => step.completed);
   if (isAllCompleted) {
-    return "aggregate";
+    return "aggregate_node";
   } else {
     return "batcher";
   }
 };
 
 const aggregateNode = async (state: State) => {
-  console.log(`aggregateNode.state ==> `, state);
+  const formattedPastSteps = Object.values(state.pastSteps)
+    .map((step) => {
+      const [objective, answer] = step;
+      return answer;
+    })
+    .join("\n");
+  const prompt = ChatPromptTemplate.fromTemplate(`
+    Consolidate the following item into a complete article
+    {item}
+    `);
+
+  const filledPrompt = await prompt.invoke({
+    item: formattedPastSteps,
+  });
+
+  const model = new ChatOpenAI({
+    model: "gpt-4.1-mini",
+  });
+
+  const result = await model.invoke(filledPrompt);
+  console.log("aggregateNode.result ==> ", result.content);
 };
 
 /**@todo probably need a router that checks AFTER executor is done, if dependency_analyzer still has stuff continue executing, else just continue */
