@@ -303,7 +303,7 @@ const dependencyAnalyzerAgent = async (state: State) => {
 const batcherStep = async (state: State) => {
   const independent = [];
   const dependent = [];
-  const plan = state.structuredPlan
+  const plan = state.structuredPlan;
   const pastSteps = state.pastSteps;
 
   for (const step of plan) {
@@ -340,7 +340,9 @@ const batcherStep = async (state: State) => {
 const continueToExecutorAgentRouter = async (state: State) => {
   const processingBatch = state.batches[0];
   const structuredPlan = state.structuredPlan;
-  const foundSteps = structuredPlan.filter((item) => processingBatch.includes(item.id));
+  const foundSteps = structuredPlan.filter((item) =>
+    processingBatch.includes(item.id),
+  );
   console.log("continueToExecutorAgentRouter.foundSteps ==> ", foundSteps);
   return foundSteps.map(
     (step) =>
@@ -360,15 +362,17 @@ const executorAgent = async (state: {
   console.log("executorAgent.state ==> ", state);
   if (MOCK) {
     // assume llm call is done
-    const updatedStructuredPlan = state.structuredPlan.map((step) => {
-      if (step.id === state.step.id) {
-        console.log('heiman')
-        return {
-          ...step,
-          completed: true,
-        };
-      }
-    }).filter(Boolean)
+    const updatedStructuredPlan = state.structuredPlan
+      .map((step) => {
+        if (step.id === state.step.id) {
+          console.log("heiman");
+          return {
+            ...step,
+            completed: true,
+          };
+        }
+      })
+      .filter(Boolean);
 
     const updatedPastSteps = state.pastSteps;
     updatedPastSteps[state.step.id] = [
@@ -381,6 +385,15 @@ const executorAgent = async (state: {
       structuredPlan: updatedStructuredPlan,
       pastSteps: updatedPastSteps,
     };
+  }
+};
+
+const shouldContinueToBatcherOrAggregate = (state: State) => {
+  const isAllCompleted = state.structuredPlan.every((step) => step.completed);
+  if (isAllCompleted) {
+    return "aggregate";
+  } else {
+    return "batcher";
   }
 };
 
@@ -399,7 +412,7 @@ const workflow = new StateGraph(PlanExecuteState)
   .addEdge("planner", "dependency_analyzer")
   .addEdge("dependency_analyzer", "batcher")
   .addConditionalEdges("batcher", continueToExecutorAgentRouter)
-  .addEdge("executor", "aggregate_node")
+  .addConditionalEdges("executor", shouldContinueToBatcherOrAggregate)
   .addEdge("aggregate_node", END);
 
 const checkpointer = new MemorySaver();
