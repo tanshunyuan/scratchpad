@@ -194,41 +194,16 @@ const validateDAG = (plan: Plan) => {
   }
 
   const graph = new DirectedGraph();
-  plan.forEach((step) => {
+  plan.forEach(step => {
     graph.addNode(step.id, { step: step.step });
   });
-  plan.forEach((step) => {
-    step.dependencies.forEach((depId) => {
+  plan.forEach(step => {
+    step.dependencies.forEach(depId => {
       graph.addEdge(step.id, depId); // Edge: step -> depId (step requires depId)
     });
   });
-  // Use dfs for cycle detection
-  const visited = new Set<string>();
-  const recStack = new Set<string>();
-  let hasCycle = false;
 
-  dfs(
-    graph,
-    (node) => {
-      if (recStack.has(node)) {
-        hasCycle = true;
-        return true; // Stop traversal on cycle detection
-      }
-      if (visited.has(node)) return false;
-
-      visited.add(node);
-      recStack.add(node);
-
-      // Continue traversal (handled by dfs)
-      return false;
-    },
-    { mode: "outbound" },
-  );
-
-  // Clean up recStack after traversal
-  graph.nodes().forEach((node) => recStack.delete(node));
-
-  if (hasCycle) {
+  if (hasCycle(graph)) {
     errors.push("Circular dependencies detected");
     return { isValid: false, errors };
   }
