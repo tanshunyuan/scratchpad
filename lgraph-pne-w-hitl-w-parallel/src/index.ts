@@ -19,6 +19,7 @@ import {
 } from "@langchain/core/prompts";
 import { z } from "zod/v4";
 import { isEmpty } from "lodash-es";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
 
 interface Step {
   id: string;
@@ -69,7 +70,7 @@ export const PlanExecuteState = Annotation.Root({
   }),
 });
 
-const MOCK = false;
+const MOCK = true;
 
 type State = typeof PlanExecuteState.State;
 const plannerAgent = async (state: State) => {
@@ -142,6 +143,7 @@ const plannerAgent = async (state: State) => {
   };
 };
 
+// need to ensure that it is a DAG
 const dependencyAnalyzerAgent = async (state: State) => {
   if (MOCK) {
     return {
@@ -310,12 +312,22 @@ const batcherStep = async (state: State) => {
 
   for (const step of plan) {
     const dependencies = step.dependencies;
-    if (step.completed) {
-      // skip
+    if (step.completed || executedIds.has(step.id)) {
+      console.log("batcherStep.for.if skipping ", step.id);
       continue;
     }
-    const noDependencies = isEmpty(dependencies);
-    if (noDependencies) {
+
+    // Check if all dependencies are resolved
+    const isStepDependencyResolved = dependencies.every(
+      (dep) => dep in state.pastSteps,
+    );
+    console.log(
+      "batcherStep.for.isStepDependencyResolved ==> ",
+      isStepDependencyResolved,
+      step,
+    );
+    const ready = isEmpty(dependencies) || isStepDependencyResolved;
+    if (ready) {
       independent.push(step.id);
     } else {
       dependent.push(step.id);
@@ -328,10 +340,10 @@ const batcherStep = async (state: State) => {
    * @example
    * [[4,5,6,7],[1],[2],[3]]
    */
+  // Add ready tasks as a batch; dependent tasks wait for next cycle
+  // const batches =
+  //   independent.length > 0 ? [...state.batches, independent] : state.batches;
   const batches = independent.length > 0 ? [independent] : [];
-  for (const item of dependent) {
-    batches.push([item]);
-  }
   console.log("batcherStep.batches ==> ", batches);
 
   return {
@@ -361,6 +373,7 @@ const executorAgent = async (state: {
   structuredPlan: Plan;
   pastSteps: PastSteps;
 }) => {
+  console.log("executorAgent processing step ==> ", state.step);
   if (MOCK) {
     // need to check if step requires dependency or not
     // assume llm call is done
@@ -380,6 +393,14 @@ const executorAgent = async (state: {
       state.step.step,
       `ANS FOR: ${state.step.step}`,
     ];
+
+    console.log(
+      "executorAgent.if updatedStructuredPlan | updatedPastSteps ==> ",
+      {
+        updatedPastSteps,
+        updatedStructuredPlan,
+      },
+    );
 
     return {
       ...state,
@@ -417,7 +438,9 @@ const executorAgent = async (state: {
     model: "gpt-4.1-mini",
   });
 
-  const result = await model.invoke(filledPrompt);
+  const agentExecutor = createReactAgent({ llm: model, tools: [] });
+
+  const result = await agentExecutor.invoke(filledPrompt);
   const updatedStructuredPlan = state.structuredPlan
     .map((step) => {
       if (step.id === state.step.id) {
@@ -430,7 +453,7 @@ const executorAgent = async (state: {
     .filter(Boolean);
 
   const updatedPastSteps = state.pastSteps;
-  updatedPastSteps[state.step.id] = [state.step.step, result.content];
+  updatedPastSteps[state.step.id] = [state.step.step, result.messages[result.messages.length].content.toString()];
 
   return {
     ...state,
@@ -450,6 +473,9 @@ const shouldContinueToBatcherOrAggregate = (state: State) => {
 };
 
 const aggregateNode = async (state: State) => {
+  if (MOCK) {
+    return true;
+  }
   const formattedPastSteps = Object.values(state.pastSteps)
     .map((step) => {
       const [objective, answer] = step;
