@@ -24,6 +24,7 @@ import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { DirectedGraph } from "graphology";
 import { hasCycle } from "graphology-dag";
 import { dfs } from "graphology-traversal";
+import { BaseToolkit, tool } from "@langchain/core/tools";
 
 interface Step {
   id: string;
@@ -98,6 +99,25 @@ export const PlanExecuteState = Annotation.Root({
 // const MOCK = true;
 const MOCK = false;
 
+// Define the input schema using Zod
+const webSearchSchema = z.object({
+  query: z.string().describe("The search query to look up online"),
+});
+
+// Create the WebSearchTool using the `tool` function
+const webSearchTool = tool(
+  async (input) => {
+    console.log("calling webSearchTool with ", input);
+    const { query } = input; // Destructure the input based on the schema
+    return `Mock results for query: ${query}`;
+  },
+  {
+    name: "web_search",
+    description:
+      "Search the web for information using a query. Returns snippets from relevant sources.",
+    schema: webSearchSchema,
+  },
+);
 type State = typeof PlanExecuteState.State;
 const plannerAgent = async (state: State) => {
   console.log("at plannerAgent");
@@ -435,6 +455,10 @@ const dependencyAnalyzerAgent = async (state: State) => {
       );
     }
   }
+  console.log(
+    "dependencyAnalyzerAgent.structuredPlan ==> ",
+    JSON.stringify(result, null, 2),
+  );
 
   return {
     structuredPlan: result,
@@ -523,6 +547,7 @@ const executorAgent = async (state: {
       ...state,
       structuredPlan: updatedStructuredPlan,
       pastSteps: updatedPastSteps,
+      messages: [{ role: "assistant", content: `ANS FOR: ${state.step.step}` }],
     };
   }
   try {
@@ -555,7 +580,10 @@ const executorAgent = async (state: {
       model: "gpt-4.1-mini",
     });
 
-    const agentExecutor = createReactAgent({ llm: model, tools: [] });
+    const agentExecutor = createReactAgent({
+      llm: model,
+      tools: [webSearchTool],
+    });
 
     const result = await agentExecutor.invoke(filledPrompt);
     const updatedStructuredPlan = [
@@ -567,16 +595,17 @@ const executorAgent = async (state: {
       },
     ];
 
+    const output =
+      result.messages[result.messages.length - 1].content.toString();
+
     const updatedPastSteps = state.pastSteps;
-    updatedPastSteps[state.step.id] = [
-      state.step.step,
-      result.messages[result.messages.length - 1].content.toString(),
-    ];
+    updatedPastSteps[state.step.id] = [state.step.step, output];
 
     return {
       ...state,
       structuredPlan: updatedStructuredPlan,
       pastSteps: updatedPastSteps,
+      messages: [{ role: "assistant", content: output }],
     };
   } catch (error) {
     console.log("executorAgent.catch.error ", error);
@@ -629,7 +658,6 @@ const aggregateNode = async (state: State) => {
   return { finalOutput: result.content };
 };
 
-/**@todo probably need a router that checks AFTER executor is done, if dependency_analyzer still has stuff continue executing, else just continue */
 const workflow = new StateGraph(PlanExecuteState)
   .addNode("planner", plannerAgent)
   .addNode("dependency_analyzer", dependencyAnalyzerAgent)
