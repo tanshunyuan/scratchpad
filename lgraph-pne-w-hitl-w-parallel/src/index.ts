@@ -42,39 +42,38 @@ export const PlanExecuteState = Annotation.Root({
     reducer: (state, update) => update ?? state ?? [],
     default: () => [],
   }),
-  // PAIN
   structuredPlan: Annotation<Plan>({
     reducer: (state, update) => {
-      const steps = [...(state as Step[])]; // Copy current state
+      const plan = [...state];
       const updatedIds = new Set<string>(); // Track updated step IDs
 
       // Process updates (could be single step or partial list)
-      for (const step of update as Step[]) {
-        const idx = steps.findIndex((s) => s.id === step.id);
+      for (const step of update) {
+        const idx = plan.findIndex((s) => s.id === step.id);
         if (idx >= 0) {
           // Update existing step, preserving fields unless explicitly updated
-          steps[idx] = {
-            ...steps[idx], // Retain original fields (step, dependencies)
-            completed: step.completed ?? steps[idx].completed, // Prioritize update's completed
+          plan[idx] = {
+            ...plan[idx], // Retain original fields (step, dependencies)
+            completed: step.completed ?? plan[idx].completed, // Prioritize update's completed
           };
           updatedIds.add(step.id);
         } else {
           // Add new step (for dynamic additions, if supported)
-          steps.push(step);
+          plan.push(step);
           updatedIds.add(step.id);
         }
       }
 
       // Ensure no step reverts completed: true to false in concurrent updates
       // (Optional: Add if race conditions persist)
-      for (const step of steps) {
+      for (const step of plan) {
         if (!updatedIds.has(step.id) && step.completed) {
           // Preserve completed: true if not explicitly updated
           continue;
         }
       }
 
-      return steps;
+      return plan;
     },
     default: () => [],
   }),
@@ -96,10 +95,12 @@ export const PlanExecuteState = Annotation.Root({
   }),
 });
 
-const MOCK = true;
+// const MOCK = true;
+const MOCK = false;
 
 type State = typeof PlanExecuteState.State;
 const plannerAgent = async (state: State) => {
+  console.log("at plannerAgent");
   if (MOCK) {
     return {
       plan: [
@@ -115,58 +116,61 @@ const plannerAgent = async (state: State) => {
       ],
     };
   }
+  try {
+    const plannerSystemPrompt = SystemMessagePromptTemplate.fromTemplate(`
+      # Role
+      You are a **planning agent**. Your task is to create a **clear, detailed, and executable step-by-step plan** to create an essay based on the objective.
 
-  // Actual
-  const plannerSystemPrompt = SystemMessagePromptTemplate.fromTemplate(`
-    # Role
-    You are a **planning agent**. Your task is to create a **clear, detailed, and executable step-by-step plan** to create an essay based on the objective.
+      # Plan Requirements
+      - Create 3-5 individual tasks that yield the correct result when executed
+      - Each step must include WHO does WHAT and HOW (when relevant)
+      - Each step should focus on ONE primary task or deliverable to optimize execution time
 
-    # Plan Requirements
-    - Create 3-5 individual tasks that yield the correct result when executed
-    - Each step must include WHO does WHAT and HOW (when relevant)
-    - Each step should focus on ONE primary task or deliverable to optimize execution time
+      # Planning Considerations
+      - Focus on content creation, research, and specialized analysis tasks
+      - Each step should be independently executable without requiring outputs from multiple previous steps to be combined
 
-    # Planning Considerations
-    - Focus on content creation, research, and specialized analysis tasks
-    - Each step should be independently executable without requiring outputs from multiple previous steps to be combined
+      # Output Format
+      - Return ONLY a list of actionable steps
+      - Each step should be 1-2 sentences maximum and focus on ONE primary deliverable
+      - Avoid bundling multiple distinct tasks (formatting, metadata, compilation) into single steps
+      `);
 
-    # Output Format
-    - Return ONLY a list of actionable steps
-    - Each step should be 1-2 sentences maximum and focus on ONE primary deliverable
-    - Avoid bundling multiple distinct tasks (formatting, metadata, compilation) into single steps
-    `);
+    const plannerHumanMessagePrompt = HumanMessagePromptTemplate.fromTemplate(`
+      # Objective
+      {objective}
+      `);
 
-  const plannerHumanMessagePrompt = HumanMessagePromptTemplate.fromTemplate(`
-    # Objective
-    {objective}
-    `);
+    const plannerChatPrompt = ChatPromptTemplate.fromMessages([
+      plannerSystemPrompt,
+      plannerHumanMessagePrompt,
+    ]);
+    const planSchema = z.object({
+      steps: z
+        .array(z.string())
+        .describe("different steps to follow, should be in sorted order"),
+    });
 
-  const plannerChatPrompt = ChatPromptTemplate.fromMessages([
-    plannerSystemPrompt,
-    plannerHumanMessagePrompt,
-  ]);
-  const planSchema = z.object({
-    steps: z
-      .array(z.string())
-      .describe("different steps to follow, should be in sorted order"),
-  });
+    const plannerModel = new ChatOpenAI({
+      model: "gpt-4.1-mini",
+    }).withStructuredOutput(planSchema, {
+      name: "plan",
+    });
 
-  const plannerModel = new ChatOpenAI({
-    model: "gpt-4.1-mini",
-  }).withStructuredOutput(planSchema, {
-    name: "plan",
-  });
+    const planner = plannerChatPrompt.pipe(plannerModel);
 
-  const planner = plannerChatPrompt.pipe(plannerModel);
+    const plan = await planner.invoke({
+      objective: state.input,
+    });
 
-  const plan = await planner.invoke({
-    objective: state.input,
-  });
-
-  console.log("plannerAgent.plan ==> ", plan.steps);
-  return {
-    plan: plan.steps,
-  };
+    console.log("plannerAgent.plan ==> ", plan.steps);
+    return {
+      plan: plan.steps,
+    };
+  } catch (error) {
+    console.error("plannerAgent.catch error ==>", error);
+    throw new Error(error);
+  }
 };
 
 interface DAGValidationResult {
@@ -234,6 +238,7 @@ const validateDAG = (plan: Plan) => {
 };
 
 const dependencyAnalyzerAgent = async (state: State) => {
+  console.log("at dependencyAnalyzerAgent");
   if (MOCK) {
     const result = {
       structuredPlan: [
@@ -298,7 +303,7 @@ const dependencyAnalyzerAgent = async (state: State) => {
     return result;
   }
 
-  const dependencyAnalyzerSchema = z
+  const outputSchema = z
     .object({
       steps: z
         .array(
@@ -316,7 +321,6 @@ const dependencyAnalyzerAgent = async (state: State) => {
               .describe("Array of step IDs that this step depends on"),
             completed: z
               .boolean()
-              .default(false)
               .describe(
                 "Flag indicating whether the step has been executed (initially false)",
               ),
@@ -334,8 +338,7 @@ const dependencyAnalyzerAgent = async (state: State) => {
     `,
     );
 
-  const dependencyAnalyzerSystemPrompt =
-    SystemMessagePromptTemplate.fromTemplate(`
+  const systemPrompt = SystemMessagePromptTemplate.fromTemplate(`
       # Role
       You are a **dependency analyzer**. Your task is to analyze a list of sequential steps and determine their logical dependencies to enable parallel execution where possible.
 
@@ -365,8 +368,7 @@ const dependencyAnalyzerAgent = async (state: State) => {
       - When in doubt about whether a dependency exists, prefer independence to maximize parallelization
     `);
 
-  const dependencyAnalyzerHumanPrompt =
-    HumanMessagePromptTemplate.fromTemplate(`
+  const humanPrompt = HumanMessagePromptTemplate.fromTemplate(`
     # Plan
     {plan}
 
@@ -374,17 +376,17 @@ const dependencyAnalyzerAgent = async (state: State) => {
     `);
 
   const chatPrompt = ChatPromptTemplate.fromMessages([
-    dependencyAnalyzerSystemPrompt,
-    dependencyAnalyzerHumanPrompt,
+    systemPrompt,
+    humanPrompt,
   ]);
 
-  const dependencyAnalyzerModel = new ChatOpenAI({
+  const model = new ChatOpenAI({
     model: "gpt-4.1-mini",
-  }).withStructuredOutput(dependencyAnalyzerSchema, {
+  }).withStructuredOutput(outputSchema, {
     name: "dependency_analyzer_schema",
   });
 
-  const dependencyAnalyzer = chatPrompt.pipe(dependencyAnalyzerModel);
+  const dependencyAnalyzer = chatPrompt.pipe(model);
 
   let attempt = 0;
   let validationFeedback = "";
@@ -394,7 +396,9 @@ const dependencyAnalyzerAgent = async (state: State) => {
 
   while (attempt < maxRetries) {
     attempt++;
-    console.log(`Dependency analysis attempt ${attempt}/${maxRetries}`);
+    console.log(
+      `dependencyAnalyzerAgent.while attempt ${attempt}/${maxRetries}`,
+    );
 
     // Invoke the LLM
     const response = await dependencyAnalyzer.invoke({
@@ -441,7 +445,6 @@ const batcherStep = async (state: State) => {
   const readyTasks = [];
   const plan = state.structuredPlan;
   const executedIds = new Set(Object.keys(state.pastSteps));
-  console.log("batcherStep.state ==> ", state);
 
   for (const step of plan) {
     const dependencies = step.dependencies;
@@ -454,23 +457,12 @@ const batcherStep = async (state: State) => {
     const isStepDependencyResolved = dependencies.every(
       (dep) => dep in state.pastSteps,
     );
-    console.log(
-      "batcherStep.for.isStepDependencyResolved ==> ",
-      isStepDependencyResolved,
-      step,
-    );
     const ready = isEmpty(dependencies) || isStepDependencyResolved;
     if (ready) {
       readyTasks.push(step.id);
     }
   }
 
-  /**
-   * @description
-   * put the independent steps infront, followed by those that require batching.
-   * @example
-   * [[4,5,6,7],[1],[2],[3]]
-   */
   // Add ready tasks as a batch; dependent tasks wait for next cycle
   const batches = readyTasks.length > 0 ? [readyTasks] : [];
   console.log("batcherStep.batches ==> ", batches);
@@ -504,16 +496,6 @@ const executorAgent = async (state: {
 }) => {
   console.log("executorAgent processing step ==> ", state.step);
   if (MOCK) {
-    // const updatedStructuredPlan = state.structuredPlan
-    //   .map((step) => {
-    //     if (step.id === state.step.id) {
-    //       return {
-    //         ...step,
-    //         completed: true,
-    //       };
-    //     }
-    //   })
-    //   .filter(Boolean);
     const updatedStructuredPlan = [
       {
         id: state.step.id,
@@ -576,16 +558,14 @@ const executorAgent = async (state: {
     const agentExecutor = createReactAgent({ llm: model, tools: [] });
 
     const result = await agentExecutor.invoke(filledPrompt);
-    const updatedStructuredPlan = state.structuredPlan
-      .map((step) => {
-        if (step.id === state.step.id) {
-          return {
-            ...step,
-            completed: true,
-          };
-        }
-      })
-      .filter(Boolean);
+    const updatedStructuredPlan = [
+      {
+        id: state.step.id,
+        step: state.step.step,
+        dependencies: state.step.dependencies,
+        completed: true,
+      },
+    ];
 
     const updatedPastSteps = state.pastSteps;
     updatedPastSteps[state.step.id] = [
@@ -605,8 +585,12 @@ const executorAgent = async (state: {
 };
 
 const shouldContinueToBatcherOrAggregate = (state: State) => {
-  console.log("shouldContinueToBatcherOrAggregate.state ==> ", state);
+  console.log("at shouldContinueToBatcherOrAggregate");
   const isAllCompleted = state.structuredPlan.every((step) => step.completed);
+  console.log(
+    "shouldContinueToBatcherOrAggregate.isAllCompleted ==> ",
+    isAllCompleted,
+  );
   if (isAllCompleted) {
     return "aggregate_node";
   } else {
@@ -615,6 +599,8 @@ const shouldContinueToBatcherOrAggregate = (state: State) => {
 };
 
 const aggregateNode = async (state: State) => {
+  console.log("at aggregateNode");
+  console.log("aggregateNode.state ==> ", JSON.stringify(state));
   if (MOCK) {
     console.log("aggregateNode: Consolidating results");
     return { finalOutput: "Mock consolidated article" };
