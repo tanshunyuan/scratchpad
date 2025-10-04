@@ -45,14 +45,32 @@ export const PlanExecuteState = Annotation.Root({
   // PAIN
   structuredPlan: Annotation<Plan>({
     reducer: (state, update) => {
-      const steps = [...(state as Step[])];
+      const steps = [...(state as Step[])]; // Copy current state
+      const updatedIds = new Set<string>(); // Track updated step IDs
 
+      // Process updates (could be single step or partial list)
       for (const step of update as Step[]) {
         const idx = steps.findIndex((s) => s.id === step.id);
         if (idx >= 0) {
-          steps[idx] = { ...steps[idx], ...step }; // update existing
+          // Update existing step, preserving fields unless explicitly updated
+          steps[idx] = {
+            ...steps[idx], // Retain original fields (step, dependencies)
+            completed: step.completed ?? steps[idx].completed, // Prioritize update's completed
+          };
+          updatedIds.add(step.id);
         } else {
-          steps.push(step); // add new
+          // Add new step (for dynamic additions, if supported)
+          steps.push(step);
+          updatedIds.add(step.id);
+        }
+      }
+
+      // Ensure no step reverts completed: true to false in concurrent updates
+      // (Optional: Add if race conditions persist)
+      for (const step of steps) {
+        if (!updatedIds.has(step.id) && step.completed) {
+          // Preserve completed: true if not explicitly updated
+          continue;
         }
       }
 
@@ -71,6 +89,10 @@ export const PlanExecuteState = Annotation.Root({
   messages: Annotation<BaseMessage[]>({
     reducer: messagesStateReducer,
     default: () => [],
+  }),
+  finalOutput: Annotation<string>({
+    reducer: (x, y) => y ?? x ?? "",
+    default: () => "",
   }),
 });
 
@@ -100,7 +122,7 @@ const plannerAgent = async (state: State) => {
     You are a **planning agent**. Your task is to create a **clear, detailed, and executable step-by-step plan** to create an essay based on the objective.
 
     # Plan Requirements
-    - Create 5-10 individual tasks that yield the correct result when executed
+    - Create 3-5 individual tasks that yield the correct result when executed
     - Each step must include WHO does WHAT and HOW (when relevant)
     - Each step should focus on ONE primary task or deliverable to optimize execution time
 
@@ -194,11 +216,11 @@ const validateDAG = (plan: Plan) => {
   }
 
   const graph = new DirectedGraph();
-  plan.forEach(step => {
+  plan.forEach((step) => {
     graph.addNode(step.id, { step: step.step });
   });
-  plan.forEach(step => {
-    step.dependencies.forEach(depId => {
+  plan.forEach((step) => {
+    step.dependencies.forEach((depId) => {
       graph.addEdge(step.id, depId); // Edge: step -> depId (step requires depId)
     });
   });
@@ -271,9 +293,9 @@ const dependencyAnalyzerAgent = async (state: State) => {
         },
       ],
     };
-    const validationResult = validateDAG(result.structuredPlan)
-    console.log('validationResult ==> ', validationResult)
-    return result
+    const validationResult = validateDAG(result.structuredPlan);
+    console.log("validationResult ==> ", validationResult);
+    return result;
   }
 
   const dependencyAnalyzerSchema = z
@@ -482,18 +504,24 @@ const executorAgent = async (state: {
 }) => {
   console.log("executorAgent processing step ==> ", state.step);
   if (MOCK) {
-    // need to check if step requires dependency or not
-    // assume llm call is done
-    const updatedStructuredPlan = state.structuredPlan
-      .map((step) => {
-        if (step.id === state.step.id) {
-          return {
-            ...step,
-            completed: true,
-          };
-        }
-      })
-      .filter(Boolean);
+    // const updatedStructuredPlan = state.structuredPlan
+    //   .map((step) => {
+    //     if (step.id === state.step.id) {
+    //       return {
+    //         ...step,
+    //         completed: true,
+    //       };
+    //     }
+    //   })
+    //   .filter(Boolean);
+    const updatedStructuredPlan = [
+      {
+        id: state.step.id,
+        step: state.step.step,
+        dependencies: state.step.dependencies,
+        completed: true,
+      },
+    ];
 
     const updatedPastSteps = state.pastSteps;
     updatedPastSteps[state.step.id] = [
@@ -515,61 +543,65 @@ const executorAgent = async (state: {
       pastSteps: updatedPastSteps,
     };
   }
+  try {
+    const formattedStepDependencies = state.step.dependencies
+      .map((depId) => {
+        const [step, result] = state.pastSteps[depId];
+        return `
+      ## Step taken
+      ${step}
+      ## Result
+      ${result}
+      `;
+      })
+      .join("\n\n");
+    const prompt = ChatPromptTemplate.fromTemplate(`
+      {contextIfNeeded}
 
-  const formattedStepDependencies = state.step.dependencies
-    .map((depId) => {
-      const [step, result] = state.pastSteps[depId];
-      return `
-    ## Step taken
-    ${step}
-    ## Result
-    ${result}
-    `;
-    })
-    .join("\n\n");
-  const prompt = ChatPromptTemplate.fromTemplate(`
-    {contextIfNeeded}
+      # Current Task
+      {currentTask}
+      `);
 
-    # Current Task
-    {currentTask}
-    `);
+    const filledPrompt = await prompt.invoke({
+      currentTask: state.step.step,
+      contextIfNeeded: isEmpty(formattedStepDependencies)
+        ? "No context required"
+        : `# Context \ ${formattedStepDependencies}`,
+    });
 
-  const filledPrompt = await prompt.invoke({
-    currentTask: state.step.step,
-    contextIfNeeded: isEmpty(formattedStepDependencies)
-      ? "No context required"
-      : `# Context \ ${formattedStepDependencies}`,
-  });
+    const model = new ChatOpenAI({
+      model: "gpt-4.1-mini",
+    });
 
-  const model = new ChatOpenAI({
-    model: "gpt-4.1-mini",
-  });
+    const agentExecutor = createReactAgent({ llm: model, tools: [] });
 
-  const agentExecutor = createReactAgent({ llm: model, tools: [] });
+    const result = await agentExecutor.invoke(filledPrompt);
+    const updatedStructuredPlan = state.structuredPlan
+      .map((step) => {
+        if (step.id === state.step.id) {
+          return {
+            ...step,
+            completed: true,
+          };
+        }
+      })
+      .filter(Boolean);
 
-  const result = await agentExecutor.invoke(filledPrompt);
-  const updatedStructuredPlan = state.structuredPlan
-    .map((step) => {
-      if (step.id === state.step.id) {
-        return {
-          ...step,
-          completed: true,
-        };
-      }
-    })
-    .filter(Boolean);
+    const updatedPastSteps = state.pastSteps;
+    updatedPastSteps[state.step.id] = [
+      state.step.step,
+      result.messages[result.messages.length - 1].content.toString(),
+    ];
 
-  const updatedPastSteps = state.pastSteps;
-  updatedPastSteps[state.step.id] = [
-    state.step.step,
-    result.messages[result.messages.length].content.toString(),
-  ];
-
-  return {
-    ...state,
-    structuredPlan: updatedStructuredPlan,
-    pastSteps: updatedPastSteps,
-  };
+    return {
+      ...state,
+      structuredPlan: updatedStructuredPlan,
+      pastSteps: updatedPastSteps,
+    };
+  } catch (error) {
+    console.log("executorAgent.catch.error ", error);
+    throw new Error(error);
+  }
 };
 
 const shouldContinueToBatcherOrAggregate = (state: State) => {
@@ -584,8 +616,8 @@ const shouldContinueToBatcherOrAggregate = (state: State) => {
 
 const aggregateNode = async (state: State) => {
   if (MOCK) {
-    console.log('aggregate leh')
-    return true;
+    console.log("aggregateNode: Consolidating results");
+    return { finalOutput: "Mock consolidated article" };
   }
   const formattedPastSteps = Object.values(state.pastSteps)
     .map((step) => {
@@ -608,6 +640,7 @@ const aggregateNode = async (state: State) => {
 
   const result = await model.invoke(filledPrompt);
   console.log("aggregateNode.result ==> ", result.content);
+  return { finalOutput: result.content };
 };
 
 /**@todo probably need a router that checks AFTER executor is done, if dependency_analyzer still has stuff continue executing, else just continue */
