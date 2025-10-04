@@ -21,6 +21,10 @@ import { z } from "zod/v4";
 import { isEmpty } from "lodash-es";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 
+import { DirectedGraph } from "graphology";
+import { hasCycle } from "graphology-dag";
+import { dfs } from "graphology-traversal";
+
 interface Step {
   id: string;
   step: string;
@@ -143,10 +147,98 @@ const plannerAgent = async (state: State) => {
   };
 };
 
-// need to ensure that it is a DAG
+interface DAGValidationResult {
+  isValid: boolean;
+  errors: string[];
+  cycles?: string[][];
+}
+
+const validateDAG = (plan: Plan) => {
+  const errors = [];
+  const stepIds = new Set(plan.map((s) => s.id));
+
+  const containsRepeatedSteps = stepIds.size !== plan.length;
+  if (containsRepeatedSteps) {
+    errors.push("Duplicate step IDs found");
+    return { isValid: false, errors };
+  }
+
+  const invalidDepsErr = [];
+  for (const step of plan) {
+    for (const depId of step.dependencies) {
+      const containsNonExistentStep = !stepIds.has(depId);
+      if (containsNonExistentStep) {
+        invalidDepsErr.push(
+          `Step ${step.id} depends on non existent step ${depId}`,
+        );
+      }
+    }
+  }
+
+  if (invalidDepsErr.length > 0) {
+    errors.push(...invalidDepsErr);
+    return { isValid: false, errors };
+  }
+
+  for (const step of plan) {
+    if (step.dependencies.includes(step.id)) {
+      errors.push(`Step ${step.id} cannot depend on itself`);
+    }
+  }
+
+  if (errors.length > 0) {
+    return {
+      isValid: false,
+      errors,
+    };
+  }
+
+  const graph = new DirectedGraph();
+  plan.forEach((step) => {
+    graph.addNode(step.id, { step: step.step });
+  });
+  plan.forEach((step) => {
+    step.dependencies.forEach((depId) => {
+      graph.addEdge(step.id, depId); // Edge: step -> depId (step requires depId)
+    });
+  });
+  // Use dfs for cycle detection
+  const visited = new Set<string>();
+  const recStack = new Set<string>();
+  let hasCycle = false;
+
+  dfs(
+    graph,
+    (node) => {
+      if (recStack.has(node)) {
+        hasCycle = true;
+        return true; // Stop traversal on cycle detection
+      }
+      if (visited.has(node)) return false;
+
+      visited.add(node);
+      recStack.add(node);
+
+      // Continue traversal (handled by dfs)
+      return false;
+    },
+    { mode: "outbound" },
+  );
+
+  // Clean up recStack after traversal
+  graph.nodes().forEach((node) => recStack.delete(node));
+
+  if (hasCycle) {
+    errors.push("Circular dependencies detected");
+    return { isValid: false, errors };
+  }
+
+  return { isValid: true, errors: [] };
+};
+
 const dependencyAnalyzerAgent = async (state: State) => {
   if (MOCK) {
-    return {
+    const result = {
       structuredPlan: [
         {
           id: "step1",
@@ -204,6 +296,9 @@ const dependencyAnalyzerAgent = async (state: State) => {
         },
       ],
     };
+    const validationResult = validateDAG(result.structuredPlan)
+    console.log('validationResult ==> ', validationResult)
+    return result
   }
 
   const dependencyAnalyzerSchema = z
@@ -277,6 +372,8 @@ const dependencyAnalyzerAgent = async (state: State) => {
     HumanMessagePromptTemplate.fromTemplate(`
     # Plan
     {plan}
+
+    {validationFeedback}
     `);
 
   const chatPrompt = ChatPromptTemplate.fromMessages([
@@ -292,20 +389,59 @@ const dependencyAnalyzerAgent = async (state: State) => {
 
   const dependencyAnalyzer = chatPrompt.pipe(dependencyAnalyzerModel);
 
-  const result = await dependencyAnalyzer.invoke({
-    plan: state.plan.join("\n"),
-  });
+  let attempt = 0;
+  let validationFeedback = "";
+  let result: Plan | null = null;
+  let validationResult: DAGValidationResult | null = null;
+  const maxRetries = 2;
 
-  console.log(result.steps);
+  while (attempt < maxRetries) {
+    attempt++;
+    console.log(`Dependency analysis attempt ${attempt}/${maxRetries}`);
+
+    // Invoke the LLM
+    const response = await dependencyAnalyzer.invoke({
+      plan: state.plan.join("\n"),
+      validationFeedback,
+    });
+
+    // Validate the DAG
+    validationResult = validateDAG(response.steps);
+
+    if (validationResult.isValid) {
+      console.log("✅ Valid DAG generated");
+      result = response.steps;
+      break;
+    }
+
+    // Prepare feedback for next attempt
+    console.warn(`❌ Invalid DAG: ${validationResult.errors.join(", ")}`);
+    validationFeedback = `
+      # VALIDATION ERRORS FROM PREVIOUS ATTEMPT
+      Your previous response had the following issues:
+      ${validationResult.errors.map((e, i) => `${i + 1}. ${e}`).join("\n")}
+
+      Please fix these issues and ensure:
+      - All step IDs are unique
+      - All dependencies reference existing step IDs
+      - No step depends on itself
+      - No circular dependencies exist
+    `;
+
+    if (attempt === maxRetries) {
+      throw new Error(
+        `Failed to generate valid DAG after ${maxRetries} attempts. Errors: ${validationResult.errors.join(", ")}`,
+      );
+    }
+  }
 
   return {
-    structuredPlan: result.steps,
+    structuredPlan: result,
   };
 };
 
 const batcherStep = async (state: State) => {
-  const independent = [];
-  const dependent = [];
+  const readyTasks = [];
   const plan = state.structuredPlan;
   const executedIds = new Set(Object.keys(state.pastSteps));
   console.log("batcherStep.state ==> ", state);
@@ -328,9 +464,7 @@ const batcherStep = async (state: State) => {
     );
     const ready = isEmpty(dependencies) || isStepDependencyResolved;
     if (ready) {
-      independent.push(step.id);
-    } else {
-      dependent.push(step.id);
+      readyTasks.push(step.id);
     }
   }
 
@@ -341,9 +475,7 @@ const batcherStep = async (state: State) => {
    * [[4,5,6,7],[1],[2],[3]]
    */
   // Add ready tasks as a batch; dependent tasks wait for next cycle
-  // const batches =
-  //   independent.length > 0 ? [...state.batches, independent] : state.batches;
-  const batches = independent.length > 0 ? [independent] : [];
+  const batches = readyTasks.length > 0 ? [readyTasks] : [];
   console.log("batcherStep.batches ==> ", batches);
 
   return {
@@ -453,7 +585,10 @@ const executorAgent = async (state: {
     .filter(Boolean);
 
   const updatedPastSteps = state.pastSteps;
-  updatedPastSteps[state.step.id] = [state.step.step, result.messages[result.messages.length].content.toString()];
+  updatedPastSteps[state.step.id] = [
+    state.step.step,
+    result.messages[result.messages.length].content.toString(),
+  ];
 
   return {
     ...state,
@@ -474,6 +609,7 @@ const shouldContinueToBatcherOrAggregate = (state: State) => {
 
 const aggregateNode = async (state: State) => {
   if (MOCK) {
+    console.log('aggregate leh')
     return true;
   }
   const formattedPastSteps = Object.values(state.pastSteps)
