@@ -24,3 +24,4 @@
 3. Shows how versatile tools are, for example:
     - plan tool: use it to create a plan for the agent to follow, instead of being a node (plan and execute)
     - subagent tool: create a subagent on the fly as a tool, instead of being part of a subgraph
+4. Instead of creating say a specific planner node or a step to spawn parallel nodes, this course creates them as a form of tool and allow the agent to use the appropiate tool when needed.
