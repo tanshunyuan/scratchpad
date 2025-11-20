@@ -51,6 +51,8 @@ def _create_task_tool(tools, subagents: list[SubAgent], model, state_schema):
             tool_ = tool(tool_)
         tools_by_name[tool_.name] = tool_
 
+    print(f"tools_by_name ==> {tools_by_name}")
+
     # Create specialized sub-agents based on configurations
     for _agent in subagents:
         if "tools" in _agent:
@@ -63,10 +65,14 @@ def _create_task_tool(tools, subagents: list[SubAgent], model, state_schema):
             model, prompt=_agent["prompt"], tools=_tools, state_schema=state_schema
         )
 
+    print(f"agents ==> {agents}")
+
     # Generate description of available sub-agents for the tool description
     other_agents_string = [
         f"- {_agent['name']}: {_agent['description']}" for _agent in subagents
     ]
+
+    print(f"other_agents_string ==> {other_agents_string}")
 
     @tool(description=TASK_DESCRIPTION_PREFIX.format(other_agents=other_agents_string))
     def task(
