@@ -108,7 +108,3 @@ Combine all techniques into a production-ready research agent:
 - Complete workflow for complex research tasks with LangGraph Studio integration
 
 Each notebook builds on the previous concepts, culminating in a sophisticated agent architecture capable of handling real-world research and analysis tasks. 
-
-# Resources
-
-https://academy.langchain.com/courses/take/deep-agents-with-langgraph/texts/68193154-getting-set-up
