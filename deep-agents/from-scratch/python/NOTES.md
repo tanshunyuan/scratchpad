@@ -32,3 +32,6 @@
   - user request -> check existing file -> doesn't exist -> perform tool search -> offload tool observation to file -> check existing file -> read file -> pass to llm to see if need call -> no need call -> then return final result
 - clearly nobody thought through the examples for files and plan, why do I store the user request into a file, when there is already a todo in state?
   - i kinda get it, if its over a 100 turns, storing user request makes sense. but i feel like the tutorial was meant more for offloading large context rather than user request. so shouldn't the focus be the former compared to the latter
+  - i should rewrite it properly in TS where it saves the tool observation rather than just the user request
+- when creating subagents as tool, its just one tool but it'll know how the different subagents and it can be simply called as `create_react_agent` is used to create these subagent.
+  - but this implementation is hella flaky, it depends on how smart the agent is if not the subagent name will mess it uup
