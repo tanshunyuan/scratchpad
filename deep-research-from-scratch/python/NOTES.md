@@ -14,16 +14,24 @@
   - `reference_outputs` contains result from what we uploaded in the dataset
 - the flow for evaluation is: come up with your expected input and output -> create dataset based on it -> create evaluation fn -> call evaluation fn
 
-# Phase 2 (Multi Agent)
+# Phase 2 (Research Agent)
 
-- introduce hard limits to agent like: stop when you're confident, use 2-3 tool for simple task but 5 tool for complex. Stop after 5 search tool if cannot find. We can keep track of the tool calls made.
+- introduce hard limits (concrete heuristics) to agent like: stop when you're confident, use 2-3 tool for simple task but 5 tool for complex. Stop after 5 search tool if cannot find. We can keep track of the tool calls made.
 - introduce thinking tool to analyze the results (https://www.anthropic.com/engineering/claude-think-tool), to prevent spiralling
 - use a compression node to summarize and compress research findings. but we need to be careful of losing valuable information. SO we need to remind the LLM of what is important based on the conversation we had with the user. Basically reminding it of it was supposed to do before doing a 'destructive' action.
 - another thing i didn't of is to summarize search results instead just passing it down
 - good to read
   - https://cognition.ai/blog/dont-build-multi-agents
 - TIL theres `filter_message` utils to grab what you need out of the entire `messages` object
+- for agent evaluation, we can create metrics based on the principle of inversion. what does it need to do to fuck it up
 
+# Phase 3 (Multi Agent)
+
+- good to read
+  - https://www.anthropic.com/engineering/built-multi-agent-research-system
+- `think_tool` can be used to plan a approach (can a task be broken task) before research. AFTER research, we can use it again to see if the research information is ENOUGH or not
+- seems like `notes` is dervied from `raw_notes`. `raw_notes` are unprocessed notes from sub agent
+- using empty tools to flag start (`ConductResearch`) and end (`ResearchComplete`)
 
 # Tots
 
