@@ -54,3 +54,11 @@ Into efficient patterns like:
 ```
 
 Ah, I guess its because without the `ThinkTool` LLM tend to go down a rabbit hole which wastes token. Using the `ThinkTool` it will reflect on what it has done and know when to stop when needed.
+
+# Final Takeaways
+1. `think_tool` is used to prevent spin out
+2. Its interesting to see how tools are heavily used to achieve or accomodate a **general** flow
+3. Never knew we could use pydantic `class` model to create tool
+4. compaction / summarisation of tool call or sub agent calls is a good idea to reduce context window
+5. The extra work done on top of the tavily search tool was great, especially the deduplication and summarisation of the result 
+6. Makes me wonder how did they even come up with this architecture in the first place.
