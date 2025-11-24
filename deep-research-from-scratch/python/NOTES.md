@@ -59,6 +59,6 @@ Ah, I guess its because without the `ThinkTool` LLM tend to go down a rabbit hol
 1. `think_tool` is used to prevent spin out
 2. Its interesting to see how tools are heavily used to achieve or accomodate a **general** flow
 3. Never knew we could use pydantic `class` model to create tool
-4. compaction / summarisation of tool call or sub agent calls is a good idea to reduce context window
+4. compaction is done at the end of the sub agent calls is a good idea to consolidate the results of it and return it to the main graph
 5. The extra work done on top of the tavily search tool was great, especially the deduplication and summarisation of the result 
-6. Makes me wonder how did they even come up with this architecture in the first place.
+6. Makes me wonder how did they even come up with this architecture in the first place. Honestly still quite confused
