@@ -5,8 +5,14 @@ import { useChat } from "@ai-sdk/react";
 import { Plus, X, Send, Users } from "lucide-react";
 import { DefaultChatTransport } from "ai";
 
+interface Advisor {
+  id: string;
+  name: string;
+  expertise: string;
+}
+
 export default function AdvisorBoard() {
-  const [advisors, setAdvisors] = useState([
+  const [advisors, setAdvisors] = useState<Advisor[]>([
     { id: "1", name: "Sarah Chen", expertise: "Product Strategy" },
     { id: "2", name: "Marcus Rivera", expertise: "Engineering & Architecture" },
     { id: "3", name: "Dr. Emily Watson", expertise: "Data Science & ML" },
@@ -18,7 +24,7 @@ export default function AdvisorBoard() {
 
   const { messages, sendMessage, status } = useChat({
     transport: new DefaultChatTransport({
-      api: "/api/chat",
+      api: "/api/chat-mock",
     }),
   });
 
@@ -38,7 +44,7 @@ export default function AdvisorBoard() {
     }
   };
 
-  const removeAdvisor = (id) => {
+  const removeAdvisor = (id: Advisor["id"]) => {
     setAdvisors(advisors.filter((a) => a.id !== id));
   };
 
