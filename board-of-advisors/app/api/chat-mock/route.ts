@@ -9,13 +9,6 @@ import { FakeListChatModel } from "@langchain/core/utils/testing";
 import { HumanMessage, AIMessage, BaseMessage } from "@langchain/core/messages";
 import z from "zod";
 
-interface GraphState {
-  messages: BaseMessage[];
-  userQuery: string;
-  isComplex: boolean;
-  chosenAdvisor: string | null;
-  advisors: any[];
-}
 
 const requestSchema = z.object({
   messages: z.custom<UIMessage[]>(async (val) => {
@@ -36,6 +29,28 @@ const requestSchema = z.object({
     .min(1),
 });
 
+interface Advisor {
+  id: string;
+  name: string;
+  expertise: string;
+}
+
+const StateAnnotation = Annotation.Root({
+  messages: Annotation<BaseMessage[]>({
+    reducer: (left: BaseMessage[], right: BaseMessage | BaseMessage[]) => {
+      if (Array.isArray(right)) {
+        return left.concat(right);
+      }
+      return left.concat([right]);
+    },
+    default: () => [],
+  }),
+  userQuery: Annotation<string>,
+  isComplex: Annotation<boolean>,
+  chosenAdvisor: Annotation<string | null>,
+  advisors: Annotation<Advisor[]>,
+});
+
 export async function POST(req: Request) {
   console.log("at POST /api/chat-mock");
   try {
@@ -43,8 +58,6 @@ export async function POST(req: Request) {
     const body = await requestSchema.parseAsync(rawBody);
 
     const { messages, advisors } = body;
-
-    console.log("body ==> ", body);
 
     // Get the latest user message
     const userQuery =
@@ -98,8 +111,6 @@ export async function POST(req: Request) {
             - What's your timeline for making this decision?
 
             This will help me route you to the right advisor with more targeted advice.`,
-            "", // Won't reach supervisor
-            "", // Won't reach advisor
           ];
         }
 
@@ -110,7 +121,7 @@ export async function POST(req: Request) {
         });
 
         // Step 1: Complexity Scout
-        async function complexityScout(state: GraphState) {
+        async function complexityScout(state: typeof StateAnnotation.State) {
           const prompt = `Analyze this user request: "${state.userQuery}"
 
             Is this request complex enough to warrant advisor input? A complex request:
@@ -151,7 +162,7 @@ export async function POST(req: Request) {
         }
 
         // Step 2: Supervisor
-        async function supervisor(state: GraphState) {
+        async function supervisor(state: typeof StateAnnotation.State) {
           if (!state.isComplex) {
             return { ...state, chosenAdvisor: null };
           }
@@ -199,7 +210,7 @@ export async function POST(req: Request) {
         }
 
         // Step 3: Chosen Advisor
-        async function advisorResponse(state: GraphState) {
+        async function advisorResponse(state: typeof StateAnnotation.State) {
           const textId = "advisor-response";
           if (!state.chosenAdvisor) {
             // Write the clarification message
@@ -323,33 +334,9 @@ export async function POST(req: Request) {
         }
 
         // Route logic
-        function routeAfterComplexity(state: GraphState) {
+        function routeAfterComplexity(state: typeof StateAnnotation.State) {
           return state.isComplex ? "supervisor" : "ask_user";
         }
-        interface Advisor {
-          id: string;
-          name: string;
-          expertise: string;
-        }
-
-        const StateAnnotation = Annotation.Root({
-          messages: Annotation<BaseMessage[]>({
-            reducer: (
-              left: BaseMessage[],
-              right: BaseMessage | BaseMessage[],
-            ) => {
-              if (Array.isArray(right)) {
-                return left.concat(right);
-              }
-              return left.concat([right]);
-            },
-            default: () => [],
-          }),
-          userQuery: Annotation<string>,
-          isComplex: Annotation<boolean>,
-          chosenAdvisor: Annotation<string | null>,
-          advisors: Annotation<Advisor[]>,
-        });
 
         // Build the graph
         const workflow = new StateGraph(StateAnnotation);

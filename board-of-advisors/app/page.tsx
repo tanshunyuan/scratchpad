@@ -57,18 +57,19 @@ export default function AdvisorBoard() {
 
   const { messages, sendMessage, status } = useChat<CustomUIMessage>({
     transport: new DefaultChatTransport({
-      api: "/api/chat-mock",
+      // api: "/api/chat-mock",
+      api: "/api/chat",
     }),
-    onData: (part) => {
-      if (part.type === "data-status") {
-        setStatusMessage(part.data.message);
-      }
-      if (part.type === "data-advisor") {
-        setSelectedAdvisor(part.data);
-        // Clear status after advisor is selected (optional)
-        if (part.data) setStatusMessage(null);
-      }
-    },
+    // onData: (part) => {
+    //   if (part.type === "data-status") {
+    //     setStatusMessage(part.data.message);
+    //   }
+    //   if (part.type === "data-advisor") {
+    //     setSelectedAdvisor(part.data);
+    //     // Clear status after advisor is selected (optional)
+    //     if (part.data) setStatusMessage(null);
+    //   }
+    // },
   });
 
   const addAdvisor = () => {
@@ -98,12 +99,12 @@ export default function AdvisorBoard() {
     }
   };
 
-  const onKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  };
+  // const onKeyDown = (e) => {
+  //   if (e.key === "Enter" && !e.shiftKey) {
+  //     e.preventDefault();
+  //     handleSendMessage();
+  //   }
+  // };
 
   const isLoading = status === "streaming";
 
