@@ -18,9 +18,6 @@ import { ChatOpenAI } from "@langchain/openai";
 /**
  * Processes a raw conversation array and returns a formatted string
  * containing only user and assistant message exchanges.
- *
- * @param {Array} messages - Array of message objects with `role` and `parts`
- * @returns {string} Formatted conversation string
  */
 function formatConversation(messages: UIMessage[]) {
   const lines = [];
@@ -84,9 +81,15 @@ const StateAnnotation = Annotation.Root({
     },
     default: () => [],
   }),
-  userQuery: Annotation<string>,
-  isComplex: Annotation<boolean>,
-  chosenAdvisor: Annotation<string | null>,
+  userQuery: Annotation<string>(),
+  isComplex: Annotation<boolean>({
+    reducer: (state, update) => update ?? state,
+    default: () => false,
+  }),
+  chosenAdvisor: Annotation<string | null>({
+    reducer: (state, update) => update ?? state,
+    default: () => null,
+  }),
   advisors: Annotation<Advisor[]>,
 });
 
@@ -130,20 +133,19 @@ export async function POST(req: Request) {
 
           const COMPLEXITY_SCOUT_SYSTEM_MSG = new SystemMessage(
             `
-            You are a Complexity Scout. Your job is to determine whether the user's request—**in the context of the full conversation history**—is now sufficiently well-defined to warrant routing to an expert advisor.
+            You are a Complexity Scout. Your job is to decide whether the user's request—**in the full context of the conversation history**—is ready for expert advisor input.
 
-            A request should be marked "COMPLEX" if:
-            - The user has clearly specified what they want (e.g., topic, scope, depth, format),
-            - All necessary clarifications have been resolved through prior dialogue,
-            - The request now meets at least one of these criteria:
-              • Requires strategic thinking or tradeoffs
-              • Involves multiple perspectives
-              • Has significant implications
-              • Needs expert judgment
+            Follow these rules:
 
-            A request is "NOT_COMPLEX" ONLY if it is still ambiguous, vague, or lacks key details—**even if the original query was simple**. In such cases, ask exactly ONE brief, focused clarifying question to resolve the remaining ambiguity.
+            1. **Count how many clarifying questions the assistant has already asked.**
+               - If **3 or more** have been asked, the request is automatically **COMPLEX**.
+            2. Otherwise, mark as **COMPLEX** if:
+               - The user has clearly specified the topic, scope, depth, and format, AND
+               - The request involves strategic thinking, tradeoffs, multiple perspectives, or expert judgment.
+            3. Mark as **NOT_COMPLEX** **only** if the request is still ambiguous or missing key details.
+               - In that case, formulate **one brief, natural clarifying question** to resolve the main remaining uncertainty.
 
-            However, **once the user has answered enough follow-ups to fully specify their intent**, stop asking questions and respond with "COMPLEX".
+            Do not worry about response formatting—the system will handle that. Just focus on making the right decision.
             `,
           );
 
@@ -428,10 +430,7 @@ export async function POST(req: Request) {
         const app = workflow.compile();
 
         await app.invoke({
-          messages: [],
           userQuery,
-          isComplex: false,
-          chosenAdvisor: null,
           advisors: body.advisors,
         });
 

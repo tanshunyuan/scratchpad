@@ -9,7 +9,6 @@ import { FakeListChatModel } from "@langchain/core/utils/testing";
 import { HumanMessage, AIMessage, BaseMessage } from "@langchain/core/messages";
 import z from "zod";
 
-
 const requestSchema = z.object({
   messages: z.custom<UIMessage[]>(async (val) => {
     const result = await safeValidateUIMessages({ messages: val });
@@ -45,9 +44,15 @@ const StateAnnotation = Annotation.Root({
     },
     default: () => [],
   }),
-  userQuery: Annotation<string>,
-  isComplex: Annotation<boolean>,
-  chosenAdvisor: Annotation<string | null>,
+  userQuery: Annotation<string>(),
+  isComplex: Annotation<boolean>({
+    reducer: (state, update) => update ?? state,
+    default: () => false,
+  }),
+  chosenAdvisors: Annotation<string[]>({
+    reducer: (state, update) => update ?? state,
+    default: () => [],
+  }),
   advisors: Annotation<Advisor[]>,
 });
 
@@ -85,22 +90,32 @@ export async function POST(req: Request) {
         let mockResponses: string[];
 
         if (isComplexQuery) {
-          // Complex path: complexity scout → supervisor → advisor
-          const selectedAdvisor = advisors[0]; // Pick first advisor for simplicity
+          const selectedAdvisors = advisors.slice(0, 2);
+          const advisorNames = selectedAdvisors.map((a) => a.name).join(", ");
+
           mockResponses = [
             "COMPLEX", // Complexity scout says it's complex
-            selectedAdvisor.name, // Supervisor picks an advisor
-            `As ${selectedAdvisor.name}, an expert in ${selectedAdvisor.expertise}, I'll provide my perspective on your question.
+            advisorNames, // Supervisor picks multiple advisors (comma-separated)
+            // First advisor response
+            `As ${selectedAdvisors[0].name}, an expert in ${selectedAdvisors[0].expertise}, I'll share my perspective.
 
-            Based on my analysis of "${userQuery.substring(0, 100)}${userQuery.length > 100 ? "..." : ""}", here are my key recommendations:
+            Based on my analysis of your question, here are my key recommendations:
 
-            1. **Strategic Considerations**: This requires a balanced approach that considers both short-term gains and long-term sustainability. The market dynamics suggest we should prioritize user value over rapid growth.
+            **Strategic Considerations**: This requires a balanced approach that considers both short-term gains and long-term sustainability. The market dynamics suggest we should prioritize user value over rapid growth.
 
-            2. **Risk Assessment**: The main risks include market saturation, competitive pressure, and potential regulatory changes. I recommend building in flexibility to pivot as needed.
+            **Risk Assessment**: The main risks include market saturation, competitive pressure, and potential regulatory changes. I recommend building in flexibility to pivot as needed.
 
-            3. **My Recommendation**: I suggest a phased approach where we test core assumptions in small pilots before full commitment. This de-risks the decision while allowing us to learn and adapt.
+            **My Recommendation**: I suggest a phased approach where we test core assumptions in small pilots before full commitment. This de-risks the decision while allowing us to learn and adapt.`,
+            // Second advisor response
+            `As ${selectedAdvisors[1].name}, an expert in ${selectedAdvisors[1].expertise}, let me add my technical perspective.
 
-            The key success factors will be clear metrics, stakeholder alignment, and maintaining agility throughout execution.`,
+             From an engineering standpoint, here's what I'd consider:
+
+             **Technical Architecture**: We need a scalable foundation that can handle growth without major rewrites. I'd recommend a modular architecture that allows us to swap components as needs evolve.
+
+             **Implementation Strategy**: Start with a minimal viable technical stack, validate performance under load, then iterate. Avoid over-engineering early, but build in observability from day one.
+
+             **Key Success Factors**: Strong testing practices, clear documentation, and regular technical reviews will be critical to maintaining quality as we scale.`,
           ];
         } else {
           // Not complex path: complexity scout asks for more details
@@ -133,6 +148,7 @@ export async function POST(req: Request) {
             Respond with ONLY "COMPLEX" or "NOT_COMPLEX" followed by a brief clarifying question if not complex.`;
 
           const response = await fakeModel.invoke([new HumanMessage(prompt)]);
+          console.log("complexityScout.response ==> ", response);
           const content = response.content.toString();
           const isComplex =
             content.includes("COMPLEX") && !content.includes("NOT_COMPLEX");
@@ -155,21 +171,23 @@ export async function POST(req: Request) {
           }
 
           return {
-            ...state,
             isComplex,
-            messages: [...state.messages, response],
+            messages: [response],
           };
         }
 
         // Step 2: Supervisor
-        async function supervisor(state: typeof StateAnnotation.State) {
+        async function supervisor(
+          state: typeof StateAnnotation.State,
+        ): Promise<Partial<typeof StateAnnotation.State>> {
+          console.log("at supervisor");
           if (!state.isComplex) {
-            return { ...state, chosenAdvisor: null };
+            return { chosenAdvisors: [] };
           }
 
           writer.write({
             type: "data-status",
-            data: { message: "Selecting best advisor...", stage: "supervisor" },
+            data: { message: "Selecting best advisor(s)...", stage: "supervisor" },
             // transient: true,
           });
 
@@ -185,151 +203,144 @@ export async function POST(req: Request) {
             Which advisor is BEST suited to answer this? Respond with ONLY the advisor's name, nothing else.`;
 
           const response = await fakeModel.invoke([new HumanMessage(prompt)]);
-          const chosenName = response.content.toString().trim();
+          console.log("supervisor.response ==> ", response);
+          const chosenNames = response.content.toString().trim();
 
-          const selectedAdvisor = state.advisors.find(
-            (a: any) => a.name.toLowerCase() === chosenName.toLowerCase(),
-          );
+          const chosenAdvisors = chosenNames
+            .split(",")
+            .map((name) => name.trim())
+            .filter((name) => name.length > 0);
 
-          if (selectedAdvisor) {
-            writer.write({
-              type: "data-advisor",
-              id: "selected-advisor",
-              data: {
-                name: selectedAdvisor.name,
-                expertise: selectedAdvisor.expertise,
-              },
-            });
+          console.log("chosenAdvisors ==> ", chosenAdvisors);
+
+          for (const advisorName of chosenAdvisors) {
+            const selectedAdvisor = state.advisors.find(
+              (a: any) => a.name.toLowerCase() === advisorName.toLowerCase(),
+            );
+
+            if (selectedAdvisor) {
+              writer.write({
+                type: "data-advisor",
+                id: `advisor-${selectedAdvisor.id}`,
+                data: {
+                  name: selectedAdvisor.name,
+                  expertise: selectedAdvisor.expertise,
+                },
+              });
+            }
           }
 
           return {
-            ...state,
-            chosenAdvisor: chosenName,
-            messages: [...state.messages, response],
+            chosenAdvisors,
+            messages: [response],
           };
         }
 
         // Step 3: Chosen Advisor
         async function advisorResponse(state: typeof StateAnnotation.State) {
-          const textId = "advisor-response";
-          if (!state.chosenAdvisor) {
-            // Write the clarification message
-            const clarificationMsg = state.messages[state.messages.length - 1];
-            const clarificationText = clarificationMsg.content.toString();
-
-            // Start text stream
-            writer.write({
-              type: "text-start",
-              id: textId,
-            });
-
-            // Stream text in chunks
-            const words = clarificationText.split(" ");
-            for (let i = 0; i < words.length; i++) {
-              writer.write({
-                type: "text-delta",
-                id: textId,
-                delta: words[i] + (i < words.length - 1 ? " " : ""),
-              });
-              await new Promise((resolve) => setTimeout(resolve, 30));
-            }
-
-            // End text stream
-            writer.write({
-              type: "text-end",
-              id: textId,
-            });
-
-            return {
-              ...state,
-              messages: [
-                ...state.messages,
-                new AIMessage(
-                  "Please provide more details or ask a more specific question so I can better assist you.",
-                ),
-              ],
-            };
-          }
-
-          writer.write({
-            type: "data-status",
-            data: {
-              message: `${state.chosenAdvisor} is formulating response...`,
-              stage: "advisor",
-            },
-            // transient: true,
-          });
-
-          const advisor = state.advisors.find(
-            (a: any) =>
-              a.name.toLowerCase() === state.chosenAdvisor?.toLowerCase(),
-          );
-
-          if (!advisor) {
-            writer.write({
-              type: "text-start",
-              id: textId,
-            });
+          if (!state.chosenAdvisors || state.chosenAdvisors.length === 0) {
+            const textId = "error-response";
+            writer.write({ type: "text-start", id: textId });
             writer.write({
               type: "text-delta",
               id: textId,
               delta:
-                "I encountered an issue selecting the right advisor. Please try rephrasing your question.",
+                "I encountered an issue selecting advisors. Please try rephrasing your question.",
             });
-            writer.write({
-              type: "text-end",
-              id: textId,
-            });
+            writer.write({ type: "text-end", id: textId });
+
             return {
-              ...state,
               messages: [
-                ...state.messages,
                 new AIMessage(
-                  "I encountered an issue selecting the right advisor. Please try rephrasing your question.",
+                  "I encountered an issue selecting advisors. Please try rephrasing your question.",
                 ),
               ],
             };
           }
 
-          const prompt = `You are ${advisor.name}, an expert in ${advisor.expertise}.
+          const responses: BaseMessage[] = [];
 
-            User question: "${state.userQuery}"
+          // Loop through each chosen advisor
+          for (let i = 0; i < state.chosenAdvisors.length; i++) {
+            const advisorName = state.chosenAdvisors[i];
+            const advisor = state.advisors.find(
+              (a: any) => a.name.toLowerCase() === advisorName.toLowerCase(),
+            );
 
-            Provide your expert perspective, considering:
-            1. Key strategic considerations
-            2. Potential risks and tradeoffs
-            3. Your recommendation with reasoning
+            if (!advisor) {
+              console.log(`Advisor ${advisorName} not found, skipping...`);
+              continue;
+            }
 
-            Respond as ${advisor.name} would, drawing on expertise in ${advisor.expertise}.`;
-
-          const response = await fakeModel.invoke([new HumanMessage(prompt)]);
-          const responseText = response.content.toString();
-
-          writer.write({
-            type: "text-start",
-            id: textId,
-          });
-
-          // Stream the text content word by word for realistic effect
-          const words = responseText.split(" ");
-          for (let i = 0; i < words.length; i++) {
             writer.write({
-              type: "text-delta",
-              id: textId,
-              delta: words[i] + (i < words.length - 1 ? " " : ""),
+              type: "data-status",
+              data: {
+                message: `${advisor.name} is formulating response...`,
+                stage: "advisor",
+                advisorIndex: i + 1,
+                totalAdvisors: state.chosenAdvisors.length,
+              },
+              // transient: true,
             });
-            // Small delay between words for streaming effect
-            await new Promise((resolve) => setTimeout(resolve, 30));
+
+            const textId = `advisor-response-${advisor.id}`;
+
+            // Write advisor header
+            writer.write({
+              type: "data-advisor-header",
+              id: `header-${advisor.id}`,
+              data: {
+                name: advisor.name,
+                expertise: advisor.expertise,
+                index: i + 1,
+                total: state.chosenAdvisors.length,
+              },
+            });
+
+            const prompt = `You are ${advisor.name}, an expert in ${advisor.expertise}.
+
+           User question: "${state.userQuery}"
+
+           Provide your expert perspective, considering:
+           1. Key strategic considerations
+           2. Potential risks and tradeoffs
+           3. Your recommendation with reasoning
+
+           Respond as ${advisor.name} would, drawing on expertise in ${advisor.expertise}.`;
+
+            const response = await fakeModel.invoke([new HumanMessage(prompt)]);
+            console.log(`advisorResponse[${i}].response ==> `, response);
+            const responseText = response.content.toString();
+
+            writer.write({ type: "text-start", id: textId });
+
+            // Stream the text content word by word for realistic effect
+            const words = responseText.split(" ");
+            for (let j = 0; j < words.length; j++) {
+              writer.write({
+                type: "text-delta",
+                id: textId,
+                delta: words[j] + (j < words.length - 1 ? " " : ""),
+              });
+              await new Promise((resolve) => setTimeout(resolve, 30));
+            }
+
+            writer.write({ type: "text-end", id: textId });
+
+            responses.push(response);
+
+            // Add a separator if not the last advisor
+            if (i < state.chosenAdvisors.length - 1) {
+              writer.write({
+                type: "data-separator",
+                id: `separator-${i}`,
+                data: { type: "advisor-divider" },
+              });
+            }
           }
 
-          writer.write({
-            type: "text-end",
-            id: textId,
-          });
-
           return {
-            ...state,
-            messages: [...state.messages, response],
+            messages: responses,
           };
         }
 
@@ -358,10 +369,7 @@ export async function POST(req: Request) {
         const app = workflow.compile();
 
         await app.invoke({
-          messages: [],
           userQuery,
-          isComplex: false,
-          chosenAdvisor: null,
           advisors,
         });
 
