@@ -86,9 +86,9 @@ const StateAnnotation = Annotation.Root({
     reducer: (state, update) => update ?? state,
     default: () => false,
   }),
-  chosenAdvisor: Annotation<string | null>({
+  chosenAdvisors: Annotation<string[]>({
     reducer: (state, update) => update ?? state,
-    default: () => null,
+    default: () => [],
   }),
   advisors: Annotation<Advisor[]>,
 });
@@ -200,16 +200,16 @@ export async function POST(req: Request) {
         }
 
         // Step 2: Supervisor
-        async function supervisor(state: typeof StateAnnotation.State) {
+        async function supervisor(state: typeof StateAnnotation.State): Promise<Partial<typeof StateAnnotation.State>> {
           console.log("at supervisor");
 
           if (!state.isComplex) {
-            return { ...state, chosenAdvisor: null };
+            return { chosenAdvisors: [] };
           }
 
           writer.write({
             type: "data-status",
-            data: { message: "Selecting best advisor...", stage: "supervisor" },
+            data: { message: "Selecting best advisor(s)...", stage: "supervisor" },
             // transient: true,
           });
 
@@ -223,32 +223,43 @@ export async function POST(req: Request) {
             Available advisors:
             ${advisorList}
 
-            Which advisor is BEST suited to answer this? Respond with ONLY the advisor's name, nothing else.
+            Which advisors is BEST suited to answer this? Respond with ONLY their names separated by commas, nothing else.
             `);
           console.log("supervisor.SUPERVISOR_PROMPT ==> ", SUPERVISOR_PROMPT);
 
           const response = await model.invoke([SUPERVISOR_PROMPT]);
-          const chosenName = response.content.toString().trim();
+          console.log("supervisor.response ==> ", response);
 
-          const selectedAdvisor = state.advisors.find(
-            (a: any) => a.name.toLowerCase() === chosenName.toLowerCase(),
-          );
+          const chosenNames = response.content.toString().trim();
 
-          if (selectedAdvisor) {
-            writer.write({
-              type: "data-advisor",
-              id: "selected-advisor",
-              data: {
-                name: selectedAdvisor.name,
-                expertise: selectedAdvisor.expertise,
-              },
-            });
+          const chosenAdvisors = chosenNames
+            .split(",")
+            .map((name) => name.trim())
+            .filter((name) => name.length > 0);
+
+          console.log("chosenAdvisors ==> ", chosenAdvisors);
+
+          for (const advisorName of chosenAdvisors) {
+            const selectedAdvisor = state.advisors.find(
+              (a: any) => a.name.toLowerCase() === advisorName.toLowerCase(),
+            );
+
+            if (selectedAdvisor) {
+              writer.write({
+                type: "data-advisor",
+                id: `advisor-${selectedAdvisor.id}`,
+                data: {
+                  name: selectedAdvisor.name,
+                  expertise: selectedAdvisor.expertise,
+                },
+              });
+            }
           }
 
+
           return {
-            ...state,
-            chosenAdvisor: chosenName,
-            messages: [...state.messages, response],
+            chosenAdvisors,
+            messages: [response],
           };
         }
 
@@ -256,151 +267,131 @@ export async function POST(req: Request) {
         async function advisorResponse(state: typeof StateAnnotation.State) {
           console.log("at advisorResponse");
 
-          const textId = "advisor-response";
-          if (!state.chosenAdvisor) {
-            // Write the clarification message
-            const clarificationMsg = state.messages[state.messages.length - 1];
-            const clarificationText = clarificationMsg.content.toString();
-
-            // Start text stream
-            writer.write({
-              type: "text-start",
-              id: textId,
-            });
-
-            // Stream text in chunks
-            const words = clarificationText.split(" ");
-            for (let i = 0; i < words.length; i++) {
-              writer.write({
-                type: "text-delta",
-                id: textId,
-                delta: words[i] + (i < words.length - 1 ? " " : ""),
-              });
-              await new Promise((resolve) => setTimeout(resolve, 30));
-            }
-
-            // End text stream
-            writer.write({
-              type: "text-end",
-              id: textId,
-            });
-
-            return {
-              ...state,
-              messages: [
-                ...state.messages,
-                new AIMessage(
-                  "Please provide more details or ask a more specific question so I can better assist you.",
-                ),
-              ],
-            };
-          }
-
-          writer.write({
-            type: "data-status",
-            data: {
-              message: `${state.chosenAdvisor} is formulating response...`,
-              stage: "advisor",
-            },
-            // transient: true,
-          });
-
-          const advisor = state.advisors.find(
-            (a: any) =>
-              a.name.toLowerCase() === state.chosenAdvisor?.toLowerCase(),
-          );
-
-          if (!advisor) {
-            writer.write({
-              type: "text-start",
-              id: textId,
-            });
+          if (!state.chosenAdvisors || state.chosenAdvisors.length === 0) {
+            const textId = "error-response";
+            writer.write({ type: "text-start", id: textId });
             writer.write({
               type: "text-delta",
               id: textId,
               delta:
-                "I encountered an issue selecting the right advisor. Please try rephrasing your question.",
+                "I encountered an issue selecting advisors. Please try rephrasing your question.",
             });
-            writer.write({
-              type: "text-end",
-              id: textId,
-            });
+            writer.write({ type: "text-end", id: textId });
+
             return {
-              ...state,
               messages: [
-                ...state.messages,
                 new AIMessage(
-                  "I encountered an issue selecting the right advisor. Please try rephrasing your question.",
+                  "I encountered an issue selecting advisors. Please try rephrasing your question.",
                 ),
               ],
             };
           }
 
-          const ADVISOR_RESPONSE_SYSTEM_MSG = new SystemMessage(`
-          You are ${advisor.name}, a recognized expert in ${advisor.expertise}.
+          const responses: BaseMessage[] = [];
 
-          The user has engaged in a conversation to clarify their request.
-          **You must base your response entirely on the final, refined intent expressed in the full conversation history.**
+          for (let i = 0; i < state.chosenAdvisors.length; i++) {
+            const advisorName = state.chosenAdvisors[i];
+            const advisor = state.advisors.find(
+              (a: any) => a.name.toLowerCase() === advisorName.toLowerCase(),
+            );
+            if (!advisor) {
+              console.log(`Advisor ${advisorName} not found, skipping...`);
+              continue;
+            }
 
-          Do NOT:
-          - Ask for further clarification
-          - Repeat questions already answered
-          - Treat the current query in isolation
-
-          Instead, DO:
-          1. Synthesize all prior context to understand the user’s precise need
-          2. Address the request with depth, using your expert judgment
-          3. Include:
-             - Key strategic considerations
-             - Potential risks and tradeoffs
-             - A clear, actionable recommendation with reasoning
-
-          Respond authoritatively and concisely in the voice of ${advisor.name}, as if delivering final expert advice to a client who has already specified their requirements.
-          `);
-
-          const ADVISOR_RESPONSE_HUMAN_MSG = new HumanMessage(`
-          Current user question: "${state.userQuery}"
-
-          Full conversation history:
-          ${formatConversation(body.messages)}
-          `);
-
-          console.log(
-            `ADVISOR_RESPONSE_HUMAN_MSG ==> `,
-            ADVISOR_RESPONSE_HUMAN_MSG,
-          );
-
-          const response = await model.invoke([
-            ADVISOR_RESPONSE_SYSTEM_MSG,
-            ADVISOR_RESPONSE_HUMAN_MSG,
-          ]);
-          const responseText = response.content.toString();
-
-          writer.write({
-            type: "text-start",
-            id: textId,
-          });
-
-          // Stream the text content word by word for realistic effect
-          const words = responseText.split(" ");
-          for (let i = 0; i < words.length; i++) {
             writer.write({
-              type: "text-delta",
-              id: textId,
-              delta: words[i] + (i < words.length - 1 ? " " : ""),
+              type: "data-status",
+              data: {
+                message: `${advisor.name} is formulating response...`,
+                stage: "advisor",
+                advisorIndex: i + 1,
+                totalAdvisors: state.chosenAdvisors.length,
+              },
+              // transient: true,
             });
-            // Small delay between words for streaming effect
-            await new Promise((resolve) => setTimeout(resolve, 30));
+
+            const textId = `advisor-response-${advisor.id}`;
+
+            // Write advisor header
+            writer.write({
+              type: "data-advisor-header",
+              id: `header-${advisor.id}`,
+              data: {
+                name: advisor.name,
+                expertise: advisor.expertise,
+                index: i + 1,
+                total: state.chosenAdvisors.length,
+              },
+            });
+            const ADVISOR_RESPONSE_SYSTEM_MSG = new SystemMessage(`
+            You are ${advisor.name}, a recognized expert in ${advisor.expertise}.
+
+            The user has engaged in a conversation to clarify their request.
+            **You must base your response entirely on the final, refined intent expressed in the full conversation history.**
+
+            Do NOT:
+            - Ask for further clarification
+            - Repeat questions already answered
+            - Treat the current query in isolation
+
+            Instead, DO:
+            1. Synthesize all prior context to understand the user’s precise need
+            2. Address the request with depth, using your expert judgment
+            3. Include:
+               - Key strategic considerations
+               - Potential risks and tradeoffs
+               - A clear, actionable recommendation with reasoning
+
+            Respond authoritatively and concisely in the voice of ${advisor.name}, as if delivering final expert advice to a client who has already specified their requirements.
+            `);
+
+            const ADVISOR_RESPONSE_HUMAN_MSG = new HumanMessage(`
+            Current user question: "${state.userQuery}"
+
+            Full conversation history:
+            ${formatConversation(body.messages)}
+            `);
+
+            console.log(
+              `ADVISOR_RESPONSE_HUMAN_MSG ==> `,
+              ADVISOR_RESPONSE_HUMAN_MSG,
+            );
+            const response = await model.invoke([
+              ADVISOR_RESPONSE_SYSTEM_MSG,
+              ADVISOR_RESPONSE_HUMAN_MSG,
+            ]);
+            const responseText = response.content.toString();
+            console.log(`advisorResponse[${i}].response ==> `, response);
+            writer.write({
+              type: "text-start",
+              id: textId,
+            });
+            const words = responseText.split(" ");
+            for (let j = 0; j < words.length; j++) {
+              writer.write({
+                type: "text-delta",
+                id: textId,
+                delta: words[j] + (j < words.length - 1 ? " " : ""),
+              });
+              await new Promise((resolve) => setTimeout(resolve, 30));
+            }
+
+            writer.write({ type: "text-end", id: textId });
+
+            responses.push(response);
+
+            // Add a separator if not the last advisor
+            if (i < state.chosenAdvisors.length - 1) {
+              writer.write({
+                type: "data-separator",
+                id: `separator-${i}`,
+                data: { type: "advisor-divider" },
+              });
+            }
           }
 
-          writer.write({
-            type: "text-end",
-            id: textId,
-          });
-
           return {
-            ...state,
-            messages: [...state.messages, response],
+            messages: responses
           };
         }
 

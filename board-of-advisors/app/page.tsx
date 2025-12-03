@@ -65,8 +65,8 @@ export default function AdvisorBoard() {
 
   const { messages, sendMessage, status } = useChat<CustomUIMessage>({
     transport: new DefaultChatTransport({
-      api: "/api/chat-mock",
-      // api: "/api/chat",
+      // api: "/api/chat-mock",
+      api: "/api/chat",
     }),
     // onData: (part) => {
     //   if (part.type === "data-status") {
