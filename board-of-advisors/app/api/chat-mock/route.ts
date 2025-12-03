@@ -58,7 +58,7 @@ export async function POST(req: Request) {
         writer.write({
           type: "data-status",
           data: { message: "Analyzing query complexity...", stage: "scout" },
-          transient: true,
+          // transient: true,
         });
 
         // Determine mock responses based on query complexity
@@ -123,11 +123,29 @@ export async function POST(req: Request) {
 
           const response = await fakeModel.invoke([new HumanMessage(prompt)]);
           const content = response.content.toString();
+          const isComplex =
+            content.includes("COMPLEX") && !content.includes("NOT_COMPLEX");
+
+          if (!isComplex) {
+            const textId = "clarification-response";
+            writer.write({ type: "text-start", id: textId });
+
+            const words = content.split(" ");
+            for (let i = 0; i < words.length; i++) {
+              writer.write({
+                type: "text-delta",
+                id: textId,
+                delta: words[i] + (i < words.length - 1 ? " " : ""),
+              });
+              await new Promise((resolve) => setTimeout(resolve, 30));
+            }
+
+            writer.write({ type: "text-end", id: textId });
+          }
 
           return {
             ...state,
-            isComplex:
-              content.includes("COMPLEX") && !content.includes("NOT_COMPLEX"),
+            isComplex,
             messages: [...state.messages, response],
           };
         }
@@ -141,7 +159,7 @@ export async function POST(req: Request) {
           writer.write({
             type: "data-status",
             data: { message: "Selecting best advisor...", stage: "supervisor" },
-            transient: true,
+            // transient: true,
           });
 
           const advisorList = state.advisors
@@ -228,7 +246,7 @@ export async function POST(req: Request) {
               message: `${state.chosenAdvisor} is formulating response...`,
               stage: "advisor",
             },
-            transient: true,
+            // transient: true,
           });
 
           const advisor = state.advisors.find(
@@ -306,7 +324,7 @@ export async function POST(req: Request) {
 
         // Route logic
         function routeAfterComplexity(state: GraphState) {
-          return state.isComplex ? "supervisor" : "advisor";
+          return state.isComplex ? "supervisor" : "ask_user";
         }
         interface Advisor {
           id: string;
@@ -343,7 +361,8 @@ export async function POST(req: Request) {
           .addEdge(START, "complexity_scout")
           .addConditionalEdges("complexity_scout", routeAfterComplexity, {
             supervisor: "supervisor",
-            advisor: "advisor",
+            ask_user: END,
+            // ask_user: "advisor",
           })
           .addEdge("supervisor", "advisor")
           .addEdge("advisor", END);
@@ -362,7 +381,7 @@ export async function POST(req: Request) {
         writer.write({
           type: "data-status",
           data: { message: "Complete", stage: "done" },
-          transient: true,
+          // transient: true,
         });
       },
     });
