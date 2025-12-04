@@ -173,7 +173,7 @@ export async function POST(req: Request) {
         });
 
         // Step 1: Complexity Scout
-        async function complexityScout(state: GraphState): Promise<Command> {
+        async function complexityScout(): Promise<Command> {
           console.log("at complexityScout");
 
           const ComplexityScoutOutputSchema = z.object({
@@ -272,8 +272,8 @@ export async function POST(req: Request) {
 
         // Step 2: Supervisor
         async function supervisor(
-          state: typeof StateAnnotation.State,
-        ): Promise<Partial<typeof StateAnnotation.State>> {
+          state: GraphState,
+        ): Promise<Partial<GraphState>> {
           console.log("at supervisor");
           console.log("supervisor.state", JSON.stringify(state));
 
@@ -365,7 +365,7 @@ export async function POST(req: Request) {
         }
 
         // Step 3: Chosen Advisor
-        async function advisorResponse(state: typeof StateAnnotation.State) {
+        async function advisorResponse(state: GraphState): Promise<Partial<GraphState>> {
           console.log("at advisorResponse");
 
           if (!state.chosenAdvisors || state.chosenAdvisors.length === 0) {
@@ -381,6 +381,7 @@ export async function POST(req: Request) {
 
             return {
               messages: [
+                ...state.messages,
                 new AIMessage(
                   "I encountered an issue selecting advisors. Please try rephrasing your question.",
                 ),
@@ -492,10 +493,9 @@ export async function POST(req: Request) {
           }
 
           return {
-            messages: responses,
+            messages: [...state.messages, ...responses],
           };
         }
-
 
         // Build the graph
         const workflow = new StateGraph(StateAnnotation);
