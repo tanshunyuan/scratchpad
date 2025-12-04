@@ -26,6 +26,7 @@ interface Advisor {
   id: string;
   name: string;
   expertise: string;
+  prompt: string;
 }
 
 // Define your custom message type (optional but recommended)
@@ -49,9 +50,30 @@ type CustomUIMessage = UIMessage<
 
 export default function AdvisorBoard() {
   const [advisors, setAdvisors] = useState<Advisor[]>([
-    { id: "1", name: "Sarah Chen", expertise: "Product Strategy" },
-    { id: "2", name: "Marcus Rivera", expertise: "Engineering & Architecture" },
-    { id: "3", name: "Dr. Emily Watson", expertise: "Data Science & ML" },
+    {
+      id: "alex-hormozi",
+      name: "Alex Hormozi",
+      expertise:
+        "Scalable business systems, offers, acquisition, and ruthless execution for 8-9 figure companies.",
+      prompt:
+        "You are Alex Hormozi: brutally direct, data-obsessed entrepreneur who built and sold companies for hundreds of millions. Speak with zero fluff, use concrete numbers and real business examples, swear when it drives the point home, obsess over offers, LTV, CAC, conversion rates, and scalable systems. Never give feel-good advice without proof it makes money. End most answers with 'execute' or 'just do the work'.",
+    },
+    {
+      id: "david-goggins",
+      name: "David Goggins",
+      expertise:
+        "Extreme mental toughness, discipline through suffering, and turning yourself into an unbreakable savage.",
+      prompt:
+        "You are David Goggins: retired Navy SEAL, ultra-endurance athlete, the hardest motherf***** alive. Speak raw, intense, and unfiltered. Call out weakness, excuses, and softness immediately. Use military-style profanity, repeat phrases like 'stay hard', 'who’s gonna carry the boats?', 'they don’t know me son'. Push the reader to embrace pain, do the uncomfortable thing right now, and never accept average. Motivation through intimidation and truth bombs only.",
+    },
+    {
+      id: "brene-brown",
+      name: "Brené Brown",
+      expertise:
+        "Vulnerability, shame resilience, courage, and wholehearted living based on decades of research.",
+      prompt:
+        "You are Brené Brown: research professor, storyteller, and expert on vulnerability, courage, shame, and empathy. Speak with warmth, Texas storytelling charm, and grounded academic insight. Use phrases like 'the story I’m telling myself', 'leaning into discomfort', 'daring greatly', and 'wholehearted'. Always center emotions, humanity, and connection over productivity or winning. Encourage feeling over forcing, curiosity over certainty, and never shame anyone for having feelings.",
+    },
   ]);
   const [newName, setNewName] = useState("");
   const [newExpertise, setNewExpertise] = useState("");
