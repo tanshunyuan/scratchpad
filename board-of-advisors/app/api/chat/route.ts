@@ -4,7 +4,13 @@ import {
   createUIMessageStreamResponse,
   UIMessage,
 } from "ai";
-import { StateGraph, END, Annotation, START } from "@langchain/langgraph";
+import {
+  StateGraph,
+  END,
+  Annotation,
+  START,
+  Command,
+} from "@langchain/langgraph";
 import { FakeListChatModel } from "@langchain/core/utils/testing";
 import {
   HumanMessage,
@@ -14,6 +20,7 @@ import {
 } from "@langchain/core/messages";
 import z from "zod";
 import { ChatOpenAI } from "@langchain/openai";
+import { Graph } from "@langchain/core/runnables/graph";
 
 /**
  * Processes a raw conversation array and returns a formatted string
@@ -44,6 +51,47 @@ function formatConversation(messages: UIMessage[]) {
   }
 
   return lines.join("\n");
+}
+
+/**
+ * Converts a conversation array into LangChain message format
+ * @param {Array} conversation - Array of conversation objects with roles and parts
+ * @returns {Array} Array of HumanMessage and AIMessage objects
+ */
+function convertToLangChainMessages(conversation: UIMessage[]) {
+  const messages = [];
+
+  for (const msg of conversation) {
+    // Extract text content from parts
+    const textParts = msg.parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+
+    // Skip messages without text content
+    if (!textParts.trim()) {
+      continue;
+    }
+
+    // Create appropriate message type based on role
+    if (msg.role === "user") {
+      messages.push(
+        new HumanMessage({
+          content: textParts,
+          id: msg.id,
+        }),
+      );
+    } else if (msg.role === "assistant") {
+      messages.push(
+        new AIMessage({
+          content: textParts,
+          id: msg.id,
+        }),
+      );
+    }
+  }
+
+  return messages;
 }
 
 const requestSchema = z.object({
@@ -93,6 +141,8 @@ const StateAnnotation = Annotation.Root({
   advisors: Annotation<Advisor[]>,
 });
 
+type GraphState = typeof StateAnnotation.State;
+
 export async function POST(req: Request) {
   console.log("at POST /api/chat");
   try {
@@ -123,7 +173,7 @@ export async function POST(req: Request) {
         });
 
         // Step 1: Complexity Scout
-        async function complexityScout(state: typeof StateAnnotation.State) {
+        async function complexityScout(state: GraphState): Promise<Command> {
           console.log("at complexityScout");
 
           const ComplexityScoutOutputSchema = z.object({
@@ -144,8 +194,18 @@ export async function POST(req: Request) {
                - The request involves strategic thinking, tradeoffs, multiple perspectives, or expert judgment.
             3. Mark as **NOT_COMPLEX** **only** if the request is still ambiguous or missing key details.
                - In that case, formulate **one brief, natural clarifying question** to resolve the main remaining uncertainty.
+               - **Additionally, provide 2-3 concrete suggestions on separate lines** to help the user clarify their intent. Present these as direct options without square brackets, for example:
 
-            Do not worry about response formatting—the system will handle that. Just focus on making the right decision.
+                 Do you mean option A or option B?
+
+                 Are you looking for interpretation 1, interpretation 2, or something else?
+
+                 For example, did you want specific example 1 or specific example 2?
+
+               - Make the suggestions specific to their request, not generic placeholders.
+               - Each suggestion should be on its own line for clarity.
+
+            Do not worry about response formatting—the system will handle that. Just focus on making the right decision and providing helpful, concrete suggestions when the request needs clarification.
             `,
           );
 
@@ -192,16 +252,30 @@ export async function POST(req: Request) {
             writer.write({ type: "text-end", id: textId });
           }
 
-          return {
-            ...state,
-            isComplex,
-            messages: [...state.messages, response],
-          };
+          if (
+            response.decision === "NOT_COMPLEX" &&
+            response.clarifying_question
+          ) {
+            return new Command({
+              goto: END,
+            });
+          } else {
+            return new Command({
+              goto: "supervisor",
+              update: {
+                isComplex,
+                messages: [...convertToLangChainMessages(body.messages)],
+              },
+            });
+          }
         }
 
         // Step 2: Supervisor
-        async function supervisor(state: typeof StateAnnotation.State): Promise<Partial<typeof StateAnnotation.State>> {
+        async function supervisor(
+          state: typeof StateAnnotation.State,
+        ): Promise<Partial<typeof StateAnnotation.State>> {
           console.log("at supervisor");
+          console.log("supervisor.state", JSON.stringify(state));
 
           if (!state.isComplex) {
             return { chosenAdvisors: [] };
@@ -209,33 +283,62 @@ export async function POST(req: Request) {
 
           writer.write({
             type: "data-status",
-            data: { message: "Selecting best advisor(s)...", stage: "supervisor" },
+            data: {
+              message: "Selecting best advisor(s)...",
+              stage: "supervisor",
+            },
             // transient: true,
           });
 
           const advisorList = state.advisors
             .map((a: any) => `- ${a.name}: ${a.expertise}`)
             .join("\n");
+          const advisorNames = state.advisors.map((advisor) => advisor.name);
 
-          const SUPERVISOR_PROMPT = new HumanMessage(`
-            Given this request: "${state.userQuery}"
+          const SUPERVISOR_SYSTEM_MSG = new SystemMessage(`
+            You are a Routing Supervisor responsible for selecting the most appropriate advisor(s) to respond to the user's request.
+
+            Use the following criteria:
+            - Analyze the **current user request** and the **full conversation history** to understand the refined intent (topic, scope, depth, and context).
+            - Review the **expertise** of each available advisor.
+            - Select **only those advisors whose expertise directly and meaningfully aligns** with the request.
+            - Prefer **specificity over breadth**: if one advisor fully covers the need, do not add others.
+            - It is valid to select **one or more** advisors if multiple perspectives are genuinely required.
+
+            Do not worry about formatting your response—the system will extract your choices automatically.
+          `);
+
+          const SUPERVISOR_HUMAN_MSG = new HumanMessage(`
+            Current user request: "${state.userQuery}"
 
             Available advisors:
             ${advisorList}
 
-            Which advisors is BEST suited to answer this? Respond with ONLY their names separated by commas, nothing else.
-            `);
-          console.log("supervisor.SUPERVISOR_PROMPT ==> ", SUPERVISOR_PROMPT);
+            Full conversation history:
+            ${formatConversation(body.messages!)}
+          `);
 
-          const response = await model.invoke([SUPERVISOR_PROMPT]);
+          const SupervisorOutputSchema = z.object({
+            chosenAdvisors: z
+              .array(z.enum([...advisorNames]))
+              .describe("A list containing existing advisor name"),
+          });
+
+          const structuredModel = model.withStructuredOutput(
+            SupervisorOutputSchema,
+            {
+              name: "SupervisorResponse",
+              strict: true,
+            },
+          );
+
+          const response = await structuredModel.invoke([
+            SUPERVISOR_SYSTEM_MSG,
+            SUPERVISOR_HUMAN_MSG,
+          ]);
           console.log("supervisor.response ==> ", response);
 
-          const chosenNames = response.content.toString().trim();
-
-          const chosenAdvisors = chosenNames
-            .split(",")
-            .map((name) => name.trim())
-            .filter((name) => name.length > 0);
+          const chosenAdvisors = response.chosenAdvisors;
 
           console.log("chosenAdvisors ==> ", chosenAdvisors);
 
@@ -256,10 +359,8 @@ export async function POST(req: Request) {
             }
           }
 
-
           return {
             chosenAdvisors,
-            messages: [response],
           };
         }
 
@@ -391,29 +492,21 @@ export async function POST(req: Request) {
           }
 
           return {
-            messages: responses
+            messages: responses,
           };
         }
 
-        // Route logic
-        function routeAfterComplexity(state: typeof StateAnnotation.State) {
-          console.log("at routeAfterComplexity");
-          return state.isComplex ? "supervisor" : "ask_user";
-        }
 
         // Build the graph
         const workflow = new StateGraph(StateAnnotation);
 
         workflow
-          .addNode("complexity_scout", complexityScout)
+          .addNode("complexity_scout", complexityScout, {
+            ends: ["supervisor", END],
+          })
           .addNode("supervisor", supervisor)
           .addNode("advisor", advisorResponse)
           .addEdge(START, "complexity_scout")
-          .addConditionalEdges("complexity_scout", routeAfterComplexity, {
-            supervisor: "supervisor",
-            ask_user: END,
-            // ask_user: "advisor",
-          })
           .addEdge("supervisor", "advisor")
           .addEdge("advisor", END);
 
