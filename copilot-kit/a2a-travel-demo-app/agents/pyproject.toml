@@ -18,3 +18,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "uvicorn>=0.30.0",
 ]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"

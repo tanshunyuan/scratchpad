@@ -26,29 +26,32 @@ from __future__ import annotations
 
 # Load environment variables from .env file before other imports
 from dotenv import load_dotenv
+
 load_dotenv()
 
 # Import necessary libraries for web server and environment variables
 import os
-import uvicorn
 
-# Import FastAPI for creating HTTP endpoints
-from fastapi import FastAPI
+import uvicorn
 
 # Import AG-UI ADK components for frontend integration
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 
+# Import FastAPI for creating HTTP endpoints
+from fastapi import FastAPI
+
 # Import Google ADK components for LLM agent creation
 from google.adk.agents import LlmAgent
-
 
 # === ORCHESTRATOR AGENT CONFIGURATION ===
 # Create the main orchestrator agent using Google ADK's LlmAgent
 # This agent coordinates all travel planning activities and manages the workflow
 
+# @note - this is just a llm call, not sure why its called an agent. when it does not have access to state nor memory
 orchestrator_agent = LlmAgent(
     name="OrchestratorAgent",
-    model="gemini-2.5-pro",  # Use the more powerful Pro model for complex orchestration
+    # model="gemini-2.5-pro",  # Use the more powerful Pro model for complex orchestration
+    model="gemini-2.5-flash",  # Use the more powerful Pro model for complex orchestration
     instruction="""
     You are a travel planning orchestrator agent. Your role is to coordinate specialized agents
     to create personalized travel plans.
@@ -129,12 +132,13 @@ orchestrator_agent = LlmAgent(
 # Wrap the orchestrator agent with AG-UI Protocol capabilities
 # This enables frontend communication and provides the interface for user interactions
 
+# @note - ADKAgent: from AG-UI; LlmAgent: from ADK
 adk_orchestrator_agent = ADKAgent(
-    adk_agent=orchestrator_agent,          # The core LLM agent we created above
-    app_name="orchestrator_app",           # Unique application identifier
-    user_id="demo_user",                   # Default user ID for demo purposes
-    session_timeout_seconds=3600,          # Session timeout (1 hour)
-    use_in_memory_services=True            # Use in-memory storage for simplicity
+    adk_agent=orchestrator_agent,  # The core LLM agent we created above
+    app_name="orchestrator_app",  # Unique application identifier
+    user_id="demo_user",  # Default user ID for demo purposes
+    session_timeout_seconds=3600,  # Session timeout (1 hour)
+    use_in_memory_services=True,  # Use in-memory storage for simplicity
 )
 
 # === FASTAPI WEB APPLICATION SETUP ===
@@ -151,13 +155,13 @@ add_adk_fastapi_endpoint(app, adk_orchestrator_agent, path="/")
 if __name__ == "__main__":
     """
     Main entry point when the script is run directly.
-    
+
     This function:
     1. Checks for required environment variables (API keys)
     2. Configures the server port
     3. Starts the uvicorn server with the FastAPI application
     """
-    
+
     # Check for required Google API key
     if not os.getenv("GOOGLE_API_KEY"):
         print("⚠️  Warning: GOOGLE_API_KEY environment variable not set!")
@@ -167,10 +171,10 @@ if __name__ == "__main__":
 
     # Get server port from environment variable, default to 9000
     port = int(os.getenv("ORCHESTRATOR_PORT", 9000))
-    
+
     # Start the server with detailed information
     print(f"🚀 Starting Orchestrator Agent (ADK + AG-UI) on http://localhost:{port}")
-    
+
     # Run the FastAPI application using uvicorn
     # host="0.0.0.0" allows external connections
     # port is configurable via environment variable
