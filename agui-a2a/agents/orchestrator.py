@@ -6,17 +6,20 @@ Speaks AG-UI Protocol to the UI, delegates tasks to A2A agents via middleware.
 from __future__ import annotations
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 import os
+
 import uvicorn
-from fastapi import FastAPI
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
+from fastapi import FastAPI
 from google.adk.agents import LlmAgent
 
 orchestrator_agent = LlmAgent(
     name="OrchestratorAgent",
-    model="gemini-2.5-pro",
+    # model="gemini-2.5-pro",
+    model="gemini-2.5-flash",
     instruction="""
     You are an orchestrator agent that coordinates research and analysis tasks.
 
@@ -67,7 +70,7 @@ adk_orchestrator_agent = ADKAgent(
     app_name="orchestrator_app",
     user_id="demo_user",
     session_timeout_seconds=3600,
-    use_in_memory_services=True
+    use_in_memory_services=True,
 )
 
 app = FastAPI(title="A2A Orchestrator (ADK + AG-UI Protocol)")

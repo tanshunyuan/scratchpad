@@ -1,2 +1,4 @@
 [tools]
 node = "21.1.0"
+python = "3"
+uv = "latest"
