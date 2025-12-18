@@ -1,0 +1,11 @@
+[project]
+name = "a2a-protocol"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "a2a-sdk[http-server]>=0.3.20",
+    "python-dotenv>=1.2.1",
+    "uvicorn>=0.38.0",
+]
