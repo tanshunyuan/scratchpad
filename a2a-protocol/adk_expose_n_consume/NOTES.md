@@ -1,16 +1,62 @@
-# Resources
-* https://google.github.io/adk-docs/a2a/intro/
+to fully utilise `uv run adk web`, the folder structure MUST follow:
 
-# https://google.github.io/adk-docs/a2a/quickstart-exposing/
-* `to_a2a(root_agent)` allows a ADK agent to be exposed via A2A protocol. Convinient function for ADK agents (not sure about other framework)
-* use agent card and hosting with `adk api_server --a2a`. more manual, but allows for easy debug & testing.
+```
+<root-directory-name>/
+├── remote_a2a/ # Cannot change
+│   └── <agent-name>/    
+│       ├── agent.json
+│       └── agent.py    
+├── README.md
+└── agent.py            # Root agent (CANNOT CHANGE)
+```
 
-This quickstart focuses on `to_a2a(root_agent)`
+OR
 
-# To run
-use `uv run adk web` on the root directory, it'll read `a2a_expose` folder and read the `a2a_expose/agent.py` which contains a `RemoteA2aAgent` that will tell the web ui on how to talk to the exposed agent.
-* seems like the folder structure is required seen here is required
+```
+<root-directory-name>/
+├── remote_a2a/ # Cannot change
+│   └── <agent-name>/    
+│       └── agent.py    
+├── README.md
+└── agent.py            # Root agent (CANNOT CHANGE)
+```
 
-# notes
-* `a2a_expose/agent.py` - Root Agent: A remote A2A agent proxy as root agent that talks to a remote a2a agent running on a separate server
-* `a2a_expose/remote_a2a/dice_master/agent.py` - Remote Dice Master Agent: The actual agent implementation that handles dice rolling and prime number checking running on remote server
+Importantly, under `remote_a2a` folder it we can have more than one agent like so:
+```
+<root-directory-name>/
+├── remote_a2a/ # Cannot change
+│   └── <agent-name>/    
+│       └── agent.py    
+│   └── <agent-name>/    
+│       ├── agent.json
+│       └── agent.py    
+├── README.md
+└── agent.py            # Root agent (CANNOT CHANGE)
+```
+
+To interact with the remote agents we must look at the `a2a_consume` example where we can define more than one `RemoteA2aAgent` and attach it to a `root_agent`
+
+```py
+prime_agent = RemoteA2aAgent(
+    name="check_prime_agent",
+    description="Agent that handles checking if numbers are prime.",
+    agent_card=(
+        f"http://localhost:8001/a2a/check_prime_agent{AGENT_CARD_WELL_KNOWN_PATH}"
+    ),
+)
+
+dice_agent = RemoteA2aAgent(
+    name="roll_dice_agent",
+    description="Agent that rolls dice",
+    agent_card=(
+        f"http://localhost:8002/a2a/roll_dice_agent{AGENT_CARD_WELL_KNOWN_PATH}"
+    ),
+)
+
+root_agent = Agent(
+    ...
+    name="root_agent",
+    sub_agents=[dice_agent, prime_agent],
+    ...
+)
+```
