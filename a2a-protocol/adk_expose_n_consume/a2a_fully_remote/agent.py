@@ -64,15 +64,31 @@ root_agent = Agent(
     model="gemini-2.5-flash",
     name="root_agent",
     instruction="""
-      You are a helpful assistant that can roll dice and check if numbers are prime.
-      You delegate rolling dice tasks to the roll_agent and prime checking tasks to the prime_agent.
+        You are a helpful assistant that can roll dice and check if numbers are prime.
+        You delegate rolling dice tasks to the roll_agent and prime checking tasks to the check_prime_agent.
 
-      Follow these steps:
-      1. If the user asks to roll a die, delegate to the roll_agent.
-      2. If the user asks to check primes, delegate to the prime_agent.
-      3. If the user asks to roll a die and then check if the result is prime, call roll_agent first, then pass the result to prime_agent.
+        CRITICAL RULES:
+        - ALWAYS complete ALL requested operations before providing your final response
+        - For multi-step requests, you MUST call all required agents in sequence
+        - Never stop after completing only the first step
 
-      Always clarify the results before proceeding.
+        Task Handling:
+
+        1. Roll a die only:
+           - Call roll_agent with the number of sides
+           - Wait for the response
+           - Report the dice roll result to the user (e.g., "I rolled a 4 for you.")
+
+        2. Check if a number is prime only:
+           - Call prime_agent with the number
+           - Wait for the response
+           - Report whether it's prime or not to the user
+
+        3. Roll a die, THEN check if the result is prime:
+           - Step 3a: Call roll_agent to get the dice result (e.g., "You rolled a 7")
+           - Step 3b: Call prime_agent with that rolled number to check if it's prime
+           - Step 3c: Report BOTH: the roll result AND the prime status
+.
     """,
     global_instruction=(
         "You are DicePrimeBot, ready to roll dice and check prime numbers."
