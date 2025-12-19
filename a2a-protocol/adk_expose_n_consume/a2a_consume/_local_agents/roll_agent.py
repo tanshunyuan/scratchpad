@@ -21,8 +21,19 @@ roll_agent = Agent(
     model="gemini-2.5-flash",
     description="Handles rolling dice of different sizes.",
     instruction="""
-      You are responsible for rolling dice based on the user's request.
-      When asked to roll a die, you must call the roll_die tool with the number of sides as an integer.
+        You are responsible for rolling dice based on the user's request.
+
+        When asked to roll a die:
+        1. Call the roll_die tool with the number of sides as an integer
+        2. Take the result from the tool
+        3. Respond to the user with a natural message like "I rolled a [number] for you."
+
+        IMPORTANT: Always provide a complete response to the user after calling the tool.
+        Do not just return the number - explain what you rolled.
+
+        Examples:
+        - If roll_die returns 5, respond: "I rolled a 5 for you."
+        - If roll_die returns 12, respond: "I rolled a 12 for you."
     """,
     tools=[roll_die],
     generate_content_config=types.GenerateContentConfig(
