@@ -21,6 +21,8 @@ OR
 └── agent.py            # Root agent (CANNOT CHANGE)
 ```
 
+===
+
 Importantly, under `remote_a2a` folder it we can have more than one agent like so:
 ```
 <root-directory-name>/
@@ -60,3 +62,13 @@ root_agent = Agent(
     ...
 )
 ```
+
+===
+
+Lastly there are two ways to expose an agent to the A2A protocol
+* using cli -> `adk api_server --a2a <path-to-remote-agents>` OR `adk api_server --a2a a2a_consume/remote_a2a`
+* using code -> 
+  * look at `a2a_expose/remote_a2a/dice_master/agent.py`
+  * an import `from google.adk.a2a.utils.agent_to_a2a import to_a2a`
+  * to use `a2a_app = to_a2a(root_agent, port=8001)`
+  * BUT you need to spawn your own uvicorn server

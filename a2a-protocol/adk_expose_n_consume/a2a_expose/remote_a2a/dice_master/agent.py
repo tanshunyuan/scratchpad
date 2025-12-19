@@ -103,3 +103,8 @@ root_agent = Agent(
 )
 
 a2a_app = to_a2a(root_agent, port=8001)
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(a2a_app, host="localhost", port=8001)
