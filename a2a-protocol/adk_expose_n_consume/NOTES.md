@@ -63,6 +63,8 @@ root_agent = Agent(
 )
 ```
 
+OR just look at `a2a_fully_remote`
+
 ===
 
 Lastly there are two ways to expose an agent to the A2A protocol
