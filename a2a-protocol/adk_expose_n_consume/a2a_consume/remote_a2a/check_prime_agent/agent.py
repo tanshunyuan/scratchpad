@@ -39,8 +39,8 @@ async def check_prime(nums: list[int]) -> str:
 
 # This doesn't use `to_a2a` because we're using the cli `adk api_server --a2a --port 8001 <path-to-here>
 root_agent = Agent(
-    model="gemini-2.5-flash",
     name="check_prime_agent",
+    model="gemini-2.5-flash",
     description="check prime agent that can check whether numbers are prime.",
     instruction="""
       You check whether numbers are prime.
