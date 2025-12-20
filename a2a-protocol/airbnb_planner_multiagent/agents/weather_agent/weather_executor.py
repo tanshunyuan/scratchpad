@@ -1,3 +1,4 @@
+from pprint import pformat
 from typing import TYPE_CHECKING
 
 from a2a.server.agent_execution import AgentExecutor
@@ -106,7 +107,9 @@ class WeatherExecutor(AgentExecutor):
         context: RequestContext,
         event_queue: EventQueue,
     ):
-        logger.trace(f"execute ==> context: {context} | event_queue: {event_queue}")
+        logger.trace(
+            f"execute ==>\ncontext: {pformat(vars(context), indent=2)}\nevent_queue: {pformat(vars(event_queue), indent=2)}"
+        )
         # Run the agent until either complete or the task is suspended.
         updater = TaskUpdater(event_queue, context.task_id, context.context_id)
         # Immediately notify that the task is submitted.

@@ -1,4 +1,3 @@
-import logging
 import os
 
 import click
@@ -16,6 +15,7 @@ from google.adk.artifacts import InMemoryArtifactService
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
+from loguru import logger
 from weather_agent import (
     create_weather_agent,
 )
@@ -25,23 +25,12 @@ from weather_executor import (
 
 load_dotenv()
 
-logging.basicConfig()
-
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 10001
 
 
 def main(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT):
-    # Verify an API key is set.
-    # Not required if using Vertex AI APIs.
-    if os.getenv("GOOGLE_GENAI_USE_VERTEXAI") != "TRUE" and not os.getenv(
-        "GOOGLE_API_KEY"
-    ):
-        raise ValueError(
-            "GOOGLE_API_KEY environment variable not set and "
-            "GOOGLE_GENAI_USE_VERTEXAI is not TRUE."
-        )
-
+    logger.trace("at main...")
     skill = AgentSkill(
         id="weather_search",
         name="Search weather",
