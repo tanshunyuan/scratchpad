@@ -1,5 +1,10 @@
-=== LiteLlm
-LiteLlm has a A2A protocol adaptation as well. Interestingly, I can do the following:
+# LiteLlm
+
+LiteLlm uses the A2A as a gateway to connect with other agents, docs [here](https://docs.litellm.ai/docs/a2a).
+
+## QnA
+
+### What's the point of defining a LiteLlmModel and passing it to the ADK agent?
 
 ```py
 from google.adk.agents import LlmAgent as ADKLlmAgent
@@ -15,7 +20,12 @@ def create_weather_agent() -> ADKLlmAgent:
 * seems like LiteLlm simplies the usage of different models from varying providers, in this case, it has a ADK adaptation where it allows the adkllmagent to ... (forgot what i want to say)
 
 
-=== FastMCP
+# FastMCP
+
+## QnA
+
+### Why use a MCP here when you can define your own tools?
+
 ```py
 from google.adk.agents import LlmAgent as ADKLlmAgent
 from google.adk.tools.mcp_tool.mcp_toolset import (
@@ -38,7 +48,6 @@ def create_weather_agent() -> ADKLlmAgent:
     )
 
 ```
-* Why use a MCP here when you can define your own tools?
 
 === Weather Agent
 

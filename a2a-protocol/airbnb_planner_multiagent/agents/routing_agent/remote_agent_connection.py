@@ -1,3 +1,4 @@
+from pprint import pformat
 from collections.abc import Callable
 from loguru import logger
 
@@ -42,4 +43,5 @@ class RemoteAgentConnections:
     async def send_message(
         self, message_request: SendMessageRequest
     ) -> SendMessageResponse:
+        logger.trace(f'\n{pformat(vars(message_request))}\n')
         return await self.agent_client.send_message(message_request)

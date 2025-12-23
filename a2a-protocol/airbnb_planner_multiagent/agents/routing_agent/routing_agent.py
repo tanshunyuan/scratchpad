@@ -1,3 +1,4 @@
+from pprint import pformat
 import asyncio
 import json
 import os
@@ -232,6 +233,7 @@ class RoutingAgent:
         Yields:
             A dictionary of JSON data.
         """
+        logger.trace(f'\nagent_name: {agent_name}\ntask: {task}\n')
         if agent_name not in self.remote_agent_connections:
             raise ValueError(f'Agent {agent_name} not found')
         state = tool_context.state
@@ -240,7 +242,10 @@ class RoutingAgent:
 
         if not client:
             raise ValueError(f'Client not available for {agent_name}')
-        task_id = state['task_id'] if 'task_id' in state else str(uuid.uuid4())
+
+        # task_id = state['task_id'] if 'task_id' in state else str(uuid.uuid4())
+
+        task_id = state.get('task_id')
 
         if 'context_id' in state:
             context_id = state['context_id']
@@ -278,8 +283,7 @@ class RoutingAgent:
         send_response: SendMessageResponse = await client.send_message(
             message_request=message_request
         )
-        logger.info(f'send_response {send_response.model_dump_json(exclude_none=True, indent=2)}',
-        )
+        logger.info(f'send_response {send_response.model_dump_json(exclude_none=True, indent=2)}')
 
         if not isinstance(send_response.root, SendMessageSuccessResponse):
             logger.warning('received non-success response. Aborting get task ')
