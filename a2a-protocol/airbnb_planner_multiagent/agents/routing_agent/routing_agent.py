@@ -4,6 +4,7 @@ import os
 import uuid
 
 from typing import Any
+from loguru import logger
 
 import httpx
 
@@ -27,7 +28,10 @@ from .remote_agent_connection import (
     RemoteAgentConnections,
     TaskUpdateCallback,
 )
+import sys
 
+logger.remove()
+logger.add(sys.stderr, level="TRACE")
 
 load_dotenv()
 
@@ -69,6 +73,7 @@ def create_send_message_payload(
     if context_id:
         payload['message']['contextId'] = context_id
 
+    logger.info(payload)
     return payload
 
 
@@ -112,11 +117,11 @@ class RoutingAgent:
                     self.remote_agent_connections[card.name] = remote_connection
                     self.cards[card.name] = card
                 except httpx.ConnectError as e:
-                    print(
+                    logger.error(
                         f'ERROR: Failed to get agent card from {address}: {e}'
                     )
                 except Exception as e:  # Catch other potential errors
-                    print(
+                    logger.error(
                         f'ERROR: Failed to initialize connection for {address}: {e}'
                     )
 
@@ -204,8 +209,8 @@ class RoutingAgent:
 
         remote_agent_info = []
         for card in self.cards.values():
-            print(f'Found agent card: {card.model_dump(exclude_none=True)}')
-            print('=' * 100)
+            logger.trace(f'Found agent card: {card.model_dump(exclude_none=True)}')
+            logger.trace('=' * 100)
             remote_agent_info.append(
                 {'name': card.name, 'description': card.description}
             )
@@ -273,17 +278,15 @@ class RoutingAgent:
         send_response: SendMessageResponse = await client.send_message(
             message_request=message_request
         )
-        print(
-            'send_response',
-            send_response.model_dump_json(exclude_none=True, indent=2),
+        logger.info(f'send_response {send_response.model_dump_json(exclude_none=True, indent=2)}',
         )
 
         if not isinstance(send_response.root, SendMessageSuccessResponse):
-            print('received non-success response. Aborting get task ')
+            logger.warning('received non-success response. Aborting get task ')
             return None
 
         if not isinstance(send_response.root.result, Task):
-            print('received non-task response. Aborting get task ')
+            logger.warning('received non-task response. Aborting get task ')
             return None
 
         return send_response.root.result
@@ -305,7 +308,7 @@ def _get_initialized_routing_agent_sync() -> Agent:
         return asyncio.run(_async_main())
     except RuntimeError as e:
         if 'asyncio.run() cannot be called from a running event loop' in str(e):
-            print(
+            logger.error(
                 f'Warning: Could not initialize RoutingAgent with asyncio.run(): {e}. '
                 'This can happen if an event loop is already running (e.g., in Jupyter). '
                 'Consider initializing RoutingAgent within an async function in your application.'

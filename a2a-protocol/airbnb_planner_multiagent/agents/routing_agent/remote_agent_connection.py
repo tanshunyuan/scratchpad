@@ -13,7 +13,10 @@ from a2a.types import (
     TaskStatusUpdateEvent,
 )
 from dotenv import load_dotenv
+import sys
 
+logger.remove()
+logger.add(sys.stderr, level="TRACE")
 
 load_dotenv()
 
@@ -25,7 +28,7 @@ class RemoteAgentConnections:
     """A class to hold the connections to the remote agents."""
 
     def __init__(self, agent_card: AgentCard, agent_url: str):
-        logger.trace(f"RemoteAgentConnections ==> agent_card: {agent_card}\nagent_url: ${agent_url}")
+        logger.trace(f"\nagent_card: {agent_card}\nagent_url: ${agent_url}\n")
         self._httpx_client = httpx.AsyncClient(timeout=30)
         # Initialise the A2AClient based on the incoming agent card and agent url
         self.agent_client = A2AClient(

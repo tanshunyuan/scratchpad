@@ -2,6 +2,7 @@ import asyncio
 import traceback  # Import the traceback module
 from collections.abc import AsyncIterator
 from pprint import pformat
+from loguru import logger
 
 import gradio as gr
 from google.adk.events import Event
@@ -12,6 +13,13 @@ from google.genai import types
 from agents.routing_agent.routing_agent import (
     root_agent as routing_agent
 )
+from dotenv import load_dotenv
+import sys
+
+logger.remove()
+logger.add(sys.stderr, level="TRACE")
+
+load_dotenv()
 
 APP_NAME = "routing_app"
 USER_ID = "default_user"
@@ -77,7 +85,7 @@ async def get_response_from_agent(
                     )
                 break
     except Exception as e:
-        print(f'Error in get_response_from_agent (Type: {type(e)}): {e}')
+        logger.error(f'Error in get_response_from_agent (Type: {type(e)}): {e}')
         traceback.print_exc()  # This will print the full traceback
         yield gr.ChatMessage(
             role='assistant',
@@ -88,11 +96,12 @@ async def get_response_from_agent(
 
 async def main():
     """Main gradio app."""
-    print("Creating ADK session...")
+
+    logger.trace("Creating ADK session...")
     await SESSION_SERVICE.create_session(
         app_name=APP_NAME, user_id=USER_ID, session_id=SESSION_ID
     )
-    print("ADK session created successfully.")
+    logger.trace("ADK session created successfully.")
 
     with gr.Blocks(theme=gr.themes.Ocean(), title="A2A Host Agent with Logo") as demo:
         gr.Image(
@@ -111,21 +120,13 @@ async def main():
             description='This assistant can help you to check weather and find airbnb accommodation',
         )
 
-        # def yes(message, history):
-        #     return "yes"
 
-        # gr.ChatInterface(
-        #     fn=yes,
-        #     title="A2A Host Agent",
-        #     description="This assistant can help you to check weather and find airbnb accommodation",
-        # )
-
-    print("Launching Gradio interface...")
+    logger.trace("Launching Gradio interface...")
     demo.queue().launch(
         server_name="0.0.0.0",
         server_port=8083,
     )
-    print("Gradio application has been shut down.")
+    logger.trace("Gradio application has been shut down.")
 
 
 if __name__ == "__main__":
