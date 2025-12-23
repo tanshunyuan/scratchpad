@@ -161,24 +161,47 @@ def convert_a2a_part_to_genai(part: Part) -> types.Part:
     Raises:
         ValueError: If the part type is not supported
     """
-    part = part.root
-    if isinstance(part, TextPart):
-        return types.Part(text=part.text)
-    if isinstance(part, FilePart):
-        if isinstance(part.file, FileWithUri):
+
+    logger.trace(f"convert_a2a_part_to_genai.part ==> {pformat(vars(part))}")
+
+    # part = part.root
+    # if isinstance(part, TextPart):
+    #     return types.Part(text=part.text)
+    # if isinstance(part, FilePart):
+    #     if isinstance(part.file, FileWithUri):
+    #         return types.Part(
+    #             file_data=types.FileData(
+    #                 file_uri=part.file.uri, mime_type=part.file.mime_type
+    #             )
+    #         )
+    #     if isinstance(part.file, FileWithBytes):
+    #         return types.Part(
+    #             inline_data=types.Blob(
+    #                 data=part.file.bytes, mime_type=part.file.mime_type
+    #             )
+    #         )
+    #     raise ValueError(f"Unsupported file type: {type(part.file)}")
+    # raise ValueError(f"Unsupported part type: {type(part)}")
+
+    part_root = part.root
+
+    if isinstance(part_root, TextPart):
+        return types.Part(text=part_root.text)
+    if isinstance(part_root, FilePart):
+        if isinstance(part_root.file, FileWithUri):
             return types.Part(
                 file_data=types.FileData(
-                    file_uri=part.file.uri, mime_type=part.file.mime_type
+                    file_uri=part_root.file.uri, mime_type=part_root.file.mime_type
                 )
             )
-        if isinstance(part.file, FileWithBytes):
+        if isinstance(part_root.file, FileWithBytes):
             return types.Part(
                 inline_data=types.Blob(
-                    data=part.file.bytes, mime_type=part.file.mime_type
+                    data=part_root.file.bytes, mime_type=part_root.file.mime_type
                 )
             )
-        raise ValueError(f"Unsupported file type: {type(part.file)}")
-    raise ValueError(f"Unsupported part type: {type(part)}")
+        raise ValueError(f"Unsupported file type: {type(part_root.file)}")
+    raise ValueError(f"Unsupported part type: {type(part_root)}")
 
 
 def convert_genai_part_to_a2a(part: types.Part) -> Part:
