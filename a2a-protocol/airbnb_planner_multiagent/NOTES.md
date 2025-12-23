@@ -40,6 +40,57 @@ def create_weather_agent() -> ADKLlmAgent:
 ```
 * Why use a MCP here when you can define your own tools?
 
+=== Weather Agent
+
+## QnA
+
+### Why does it require a conversion from GenAI to A2A and vice-versa?
+
+=== Airbnb Agent
+
+## QnA
+
+### What is this syntax?
+```py
+structured_response = (
+    state_values.get('structured_response')
+    if isinstance(state_values, dict)
+    else getattr(state_values, 'structured_response', None)
+)
+```
+* 
+
+=== Tips
+
+## 001
+
+Form a consistent contract regardless of success or failure 
+```py
+except httpx.HTTPStatusError as http_err:
+    logger.error(
+        f'HTTPStatusError in Airbnb.ainvoke (Airbnb task): {http_err.response.status_code} - {http_err}',
+        exc_info=True,
+    )
+    return {
+        'is_task_complete': True,
+        'require_user_input': False,
+        'content': f'An error occurred with an external service for Airbnb task: {http_err.response.status_code}',
+    }
+except Exception as e:
+    logger.error(
+        f'Unhandled exception in AirbnbAgent.ainvoke (Airbnb task): {type(e).__name__} - {e}',
+        exc_info=True,
+    )
+    # Consider whether to re-raise or return a structured error
+    return {
+        'is_task_complete': True,  # Or False, marking task as errored
+        'require_user_input': False,
+        'content': f'An unexpected error occurred while processing your airbnb task: {type(e).__name__}.',
+    }
+```
+
+
+
 === Misc
 
 * FastMCP is a python library used to create MCP servers
