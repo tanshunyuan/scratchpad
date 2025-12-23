@@ -60,6 +60,29 @@ structured_response = (
 ```
 * 
 
+=== Google ADK
+
+## QnA
+
+### What is `SessionService`?
+
+```py
+from google.adk.sessions import InMemorySessionService
+APP_NAME = "routing_app"
+USER_ID = "default_user"
+SESSION_ID = "default_session"
+SESSION_SERVICE = InMemorySessionService()
+
+await SESSION_SERVICE.create_session(
+    app_name=APP_NAME, user_id=USER_ID, session_id=SESSION_ID
+)
+```
+* It's similar to langgraph `Memory`, it keeps a history of the conversation state
+
+### What is Event Loop?
+* https://google.github.io/adk-docs/runtime/#core-idea-the-event-loop
+
+
 === Tips
 
 ## 001
