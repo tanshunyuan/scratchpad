@@ -55,7 +55,7 @@ class AirbnbAgent:
         if not self.mcp_tools:
             raise ValueError("No MCP tools provided to AirbnbAgent")
 
-    # Note being used
+    # Not being used
     async def ainvoke(self, query: str, session_id: str) -> dict[str, Any]:
         logger.info(
             f"Airbnb.ainvoke called with query: '{query}', session_id: '{session_id}'"
@@ -121,9 +121,8 @@ class AirbnbAgent:
         self, config: RunnableConfig, agent_runnable
     ) -> dict[str, Any]:
         """Retrieves and formats the agent's response from the state of the given agent_runnable."""
-        logger.debug(
-            f"Entering _get_agent_response_from_state for config: {config} using agent: {type(agent_runnable).__name__}"
-        )
+
+        logger.debug(f"Entering _get_agent_response_from_state for config: {config} using agent: {type(agent_runnable).__name__}")
 
         try:
             if not hasattr(agent_runnable, "get_state"):
@@ -259,7 +258,7 @@ class AirbnbAgent:
         )
         try:
             async for chunk in agent_runnable.astream_events(
-                langgraph_input, config, version="v1"
+                langgraph_input, config, version="v2"
             ):
                 # logger.debug(f"Stream chunk for {session_id}: {chunk}")
                 event_name = chunk.get("event")

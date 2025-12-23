@@ -17,4 +17,5 @@ dependencies = [
     "a2a-sdk>=0.3.0",
     "litellm",
     "loguru>=0.7.3",
+    "aiosqlite>=0.22.0",
 ]
