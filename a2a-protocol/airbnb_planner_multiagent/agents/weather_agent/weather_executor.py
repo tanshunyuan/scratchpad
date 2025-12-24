@@ -78,7 +78,7 @@ class WeatherExecutor(AgentExecutor):
                 if event.is_final_response():
                     parts = [
                         convert_genai_part_to_a2a(part)
-                        for part in event.content.parts
+                        for part in _safe_get_parts(event)
                         if (part.text or part.file_data or part.inline_data)
                     ]
                     logger.debug("Yielding final response: %s", parts)
@@ -92,7 +92,7 @@ class WeatherExecutor(AgentExecutor):
                         message=task_updater.new_agent_message(
                             [
                                 convert_genai_part_to_a2a(part)
-                                for part in event.content.parts
+                                for part in _safe_get_parts(event)
                                 if (part.text or part.file_data or part.inline_data)
                             ],
                         ),
@@ -111,13 +111,14 @@ class WeatherExecutor(AgentExecutor):
         logger.trace(
             f"execute ==>\ncontext: {pformat(vars(context), indent=2)}\nevent_queue: {pformat(vars(event_queue), indent=2)}"
         )
-        if(context.task_id is None or context.context_id is None):
+        if context.task_id is None or context.context_id is None:
             raise ValueError(
                 f"Missing required identifiers: task_id={context.task_id}, context_id={context.context_id}"
             )
 
-        if not hasattr(context.message, 'parts') or context.message.parts is None:
-            raise ValueError('Cannot execute task: message has no parts')
+        message_parts = getattr(context.message, "parts", None)
+        if message_parts is None:
+            raise ValueError("Cannot execute task: message has no parts")
 
         # Run the agent until either complete or the task is suspended.
         updater = TaskUpdater(event_queue, context.task_id, context.context_id)
@@ -127,9 +128,7 @@ class WeatherExecutor(AgentExecutor):
         await updater.update_status(TaskState.working)
         await self._process_request(
             types.UserContent(
-                parts=[
-                    convert_a2a_part_to_genai(part) for part in context.message.parts
-                ],
+                parts=[convert_a2a_part_to_genai(part) for part in message_parts],
             ),
             context.context_id,
             updater,
@@ -153,6 +152,13 @@ class WeatherExecutor(AgentExecutor):
             logger.debug(
                 f"Cancellation requested for inactive weather session: {session_id}"
             )
+
+
+def _safe_get_parts(event) -> list:
+    """Safely get parts from an event, handling None cases."""
+    if not event.content:
+        return []
+    return event.content.parts or []
 
 
 # Conversion utilities
@@ -187,7 +193,8 @@ def convert_a2a_part_to_genai(part: Part) -> types.Part:
         if isinstance(part_root.file, FileWithBytes):
             return types.Part(
                 inline_data=types.Blob(
-                    data=part_root.file.bytes.encode(), mime_type=part_root.file.mime_type
+                    data=part_root.file.bytes.encode(),
+                    mime_type=part_root.file.mime_type,
                 )
             )
         raise ValueError(f"Unsupported file type: {type(part_root.file)}")
@@ -207,12 +214,10 @@ def convert_genai_part_to_a2a(part: types.Part) -> Part:
         ValueError: If the part type is not supported
     """
     if part.text:
-        return Part(
-            root=TextPart(text=part.text)
-        )
+        return Part(root=TextPart(text=part.text))
     if part.file_data and part.file_data.file_uri:
         return Part(
-            root= FilePart(
+            root=FilePart(
                 file=FileWithUri(
                     uri=part.file_data.file_uri,
                     mime_type=part.file_data.mime_type,
