@@ -111,6 +111,14 @@ class WeatherExecutor(AgentExecutor):
         logger.trace(
             f"execute ==>\ncontext: {pformat(vars(context), indent=2)}\nevent_queue: {pformat(vars(event_queue), indent=2)}"
         )
+        if(context.task_id is None or context.context_id is None):
+            raise ValueError(
+                f"Missing required identifiers: task_id={context.task_id}, context_id={context.context_id}"
+            )
+
+        if not hasattr(context.message, 'parts') or context.message.parts is None:
+            raise ValueError('Cannot execute task: message has no parts')
+
         # Run the agent until either complete or the task is suspended.
         updater = TaskUpdater(event_queue, context.task_id, context.context_id)
         # Immediately notify that the task is submitted.
@@ -199,12 +207,16 @@ def convert_genai_part_to_a2a(part: types.Part) -> Part:
         ValueError: If the part type is not supported
     """
     if part.text:
-        return TextPart(text=part.text)
+        return Part(
+            root=TextPart(text=part.text)
+        )
     if part.file_data and part.file_data.file_uri:
-        return FilePart(
-            file=FileWithUri(
-                uri=part.file_data.file_uri,
-                mime_type=part.file_data.mime_type,
+        return Part(
+            root= FilePart(
+                file=FileWithUri(
+                    uri=part.file_data.file_uri,
+                    mime_type=part.file_data.mime_type,
+                )
             )
         )
     if part.inline_data and part.inline_data.data:
