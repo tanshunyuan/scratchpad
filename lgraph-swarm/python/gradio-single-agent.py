@@ -95,9 +95,17 @@ def go_back_to_warranty(reason: str, runtime: ToolRuntime[None, SupportState]) -
 
 
 @tool
-def go_back_to_classification() -> Command:
+def go_back_to_classification(reason: str, runtime: ToolRuntime[None, SupportState]) -> Command:
     """Go back to issue classification step."""
-    return Command(update={"current_step": "issue_classifier"})
+    return Command(update={
+        "messages": [
+            ToolMessage(
+                content=f"Going back to classification due to {reason}",
+                tool_call_id=runtime.tool_call_id
+            )
+        ],
+        "current_step": "issue_classifier"
+    })
 
 
 WARRANTY_COLLECTOR_PROMPT = """You are a customer support agent helping with device issues.
@@ -208,12 +216,12 @@ def chat_function(message, history, request: gr.Request):
     Gradio chat function that maintains conversation state.
 
     Args:
-        message: Current user message
-        history: Chat history (list of [user_msg, bot_msg] pairs)
+        message: Current user message (string when using textbox)
+        history: Chat history (list of message dicts with 'role' and 'content')
         request: Gradio request object (contains session info)
 
     Returns:
-        Updated history with new message pair
+        Updated history with new messages
     """
     # Get or create thread_id for this session
     session_id = request.session_hash
@@ -243,8 +251,10 @@ def chat_function(message, history, request: gr.Request):
 
     debug_info = f"\n\n_[Step: {current_step} | Warranty: {warranty} | Issue: {issue}]_"
 
-    # Return updated history
-    history.append((message, ai_message + debug_info))
+    # Append new messages in the expected format
+    history.append({"role": "user", "content": message})
+    history.append({"role": "assistant", "content": ai_message + debug_info})
+
     return history
 
 

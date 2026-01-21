@@ -93,9 +93,17 @@ def go_back_to_warranty(reason: str, runtime: ToolRuntime[None, SupportState]) -
     })
 
 @tool
-def go_back_to_classification() -> Command:
+def go_back_to_classification(reason: str, runtime: ToolRuntime[None, SupportState]) -> Command:
     """Go back to issue classification step."""
-    return Command(update={"current_step": "issue_classifier"})
+    return Command(update={
+        "messages": [
+            ToolMessage(
+                content=f"Going back to classification due to {reason}",
+                tool_call_id=runtime.tool_call_id
+            )
+        ],
+        "current_step": "issue_classifier"
+    })
 
 # Define prompts as constants for easy reference
 WARRANTY_COLLECTOR_PROMPT = """You are a customer support agent helping with device issues.
