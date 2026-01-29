@@ -1,0 +1,3 @@
+[submodule "a2ui-collection/a2aui-official"]
+	path = a2ui-collection/a2aui-official
+	url = git@github.com:google/A2UI.git
