@@ -9,6 +9,7 @@ import { toolCallAppropriatenessScorer, completenessScorer, translationScorer } 
 import { chefAgent } from './agents/chef-agent';
 import { stockAgent } from './agents/stock-agent';
 import { candidateWorkflow } from './workflows/candidate-workflow';
+import { notes } from './mcp/server'
 
 export const mastra = new Mastra({
   workflows: { weatherWorkflow, candidateWorkflow },
@@ -23,6 +24,9 @@ export const mastra = new Mastra({
     name: 'Mastra',
     level: 'info',
   }),
+  mcpServers: {
+    notes
+  },
   observability: new Observability({
     configs: {
       default: {
