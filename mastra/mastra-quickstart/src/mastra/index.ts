@@ -10,10 +10,11 @@ import { chefAgent } from './agents/chef-agent';
 import { stockAgent } from './agents/stock-agent';
 import { candidateWorkflow } from './workflows/candidate-workflow';
 import { notes } from './mcp/server'
+import { searchAgent } from './agents/search-agent';
 
 export const mastra = new Mastra({
   workflows: { weatherWorkflow, candidateWorkflow },
-  agents: { weatherAgent, chefAgent, stockAgent },
+  agents: { weatherAgent, chefAgent, stockAgent, searchAgent},
   scorers: { toolCallAppropriatenessScorer, completenessScorer, translationScorer },
   storage: new LibSQLStore({
     id: "mastra-storage",

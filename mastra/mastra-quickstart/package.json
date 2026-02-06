@@ -26,6 +26,7 @@
     "@mastra/memory": "^1.1.0",
     "@mastra/observability": "^1.2.0",
     "@types/unist": "^3.0.3",
+    "exa-js": "^2.3.0",
     "gray-matter": "^4.0.3",
     "remark-parse": "^11.0.0",
     "unified": "^11.0.5",
