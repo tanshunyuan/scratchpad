@@ -2,6 +2,20 @@ import z from "zod";
 import { chefAgent } from "../mastra/agents/chef-agent";
 import { stockAgent } from "../mastra/agents/stock-agent";
 import { searchAgent } from "../mastra/agents/search-agent";
+import { mastra } from '../mastra'
+
+async function testResearchAgent() {
+  // Basic query about concepts
+  // const researchAgent = mastra.getAgent("researchAgent");
+  const query1 =
+    "What problems does sequence modeling face with neural networks?";
+  const query2 = "What improvements were achieved in translation quality?";
+  const researchAgent = mastra.getAgent('researchAgent')
+  const response1 = await researchAgent.generate(query2);
+  console.log("\nQuery:", query2);
+  console.log("Response:", response1.text);
+}
+testResearchAgent();
 
 async function testSearchAgent() {
   const query = "What happened last week in AI news?";
@@ -14,10 +28,9 @@ async function testSearchAgent() {
     console.log(response);
   };
 
-  await blockingResponse({query})
+  await blockingResponse({ query });
 }
-testSearchAgent();
-
+// testSearchAgent();
 
 async function testStockAgent() {
   const query = "What is the current stock price of Apple (AAPL)?";
@@ -30,7 +43,7 @@ async function testStockAgent() {
     console.log(response);
   };
 
-  await blockingResponse({query})
+  await blockingResponse({ query });
 }
 // testStockAgent();
 
