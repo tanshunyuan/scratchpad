@@ -27,6 +27,8 @@ import { email } from "zod/mini";
 import { emailHitlWorkflow } from "./workflows/email-hitl-workflow";
 import { singleTurnHitlWorkflow } from "./workflows/single-turn-hitl-workflow";
 import { customerSupportAgent } from "./agents/customer-support-agent";
+import { multiTurnHitlWorkflow } from "./workflows/multi-turn-hitl-workflow";
+import { gameAgent } from "./agents/game-agent";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -48,8 +50,8 @@ const VECTOR_PATH = `file:${path.join(DB_PATH, "vector.db")}`;
 console.log(`VECTOR_PATH: ${VECTOR_PATH}\nSTORAGE_PATH: ${STORAGE_PATH}`);
 
 export const mastra = new Mastra({
-  workflows: { weatherWorkflow, candidateWorkflow, emailHitlWorkflow, singleTurnHitlWorkflow },
-  agents: { weatherAgent, chefAgent, stockAgent, searchAgent, researchAgent, customerSupportAgent },
+  workflows: { weatherWorkflow, candidateWorkflow, emailHitlWorkflow, singleTurnHitlWorkflow, multiTurnHitlWorkflow },
+  agents: { weatherAgent, chefAgent, stockAgent, searchAgent, researchAgent, customerSupportAgent, gameAgent },
   scorers: {
     toolCallAppropriatenessScorer,
     completenessScorer,
