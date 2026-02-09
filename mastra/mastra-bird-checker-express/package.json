@@ -1,39 +1,16 @@
 {
-  "name": "express-ts-boilerplate",
+  "name": "my-monorepo",
   "version": "1.0.0",
-  "description": "An Express.js + TypeScript boilerplate",
-  "main": "dist/index.js",
+  "private": true,
   "scripts": {
-    "start": "tsx src/index.ts",
-    "studio": "mastra studio -p 4211 -s 3000",
-    "dev": "tsx watch src/index.ts"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/mastra-ai/express-ts-boilerplate.git"
-  },
-  "type": "module",
-  "bugs": {
-    "url": "https://github.com/mastra-ai/express-ts-boilerplate/issues"
-  },
-  "homepage": "https://github.com/mastra-ai/express-ts-boilerplate#readme",
-  "dependencies": {
-    "@mastra/core": "^1.2.0",
-    "@mastra/express": "^1.1.1",
-    "@mastra/libsql": "^1.2.0",
-    "@mastra/loggers": "^1.0.1",
-    "@mastra/memory": "^1.1.0",
-    "@mastra/observability": "^1.2.0",
-    "@t3-oss/env-core": "^0.13.10",
-    "dotenv": "^17.2.4",
-    "express": "^5.2.1",
-    "mastra": "^1.2.0",
-    "zod": "^4.3.6"
-  },
-  "devDependencies": {
-    "@types/express": "^5.0.6",
-    "@types/node": "^25.0.2",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "dev": "pnpm --filter server dev",
+    "dev:server": "pnpm --filter server dev",
+    "dev:client": "pnpm --filter client dev",
+    "build": "pnpm -r build",
+    "build:server": "pnpm --filter server build",
+    "build:client": "pnpm --filter client build",
+    "clean": "pnpm -r clean",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test"
   }
 }

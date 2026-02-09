@@ -4,8 +4,9 @@
 import express, { type Request, type Response } from "express";
 import { MastraServer } from "@mastra/express";
 import { mastra } from "./mastra";
-import { type ImageQuery, getRandomImage } from "./helper/utils";
+import { type ImageQuery, getRandomImage } from "./helper/mastra/system-tools";
 import { z } from "zod";
+import { getImage, promptOpenai } from "./helper/mastra/actions";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -55,7 +56,7 @@ app.get("/api/get-unsplash-image", async (req: Request, res: Response) => {
   try {
     const imageQuery = (req?.query?.query || "wildlife") as ImageQuery;
 
-    const image = await getRandomImage({ query: imageQuery });
+    const image = await getImage({ query: imageQuery });
 
     if (!image.ok) {
       res.status(400).send({ msg: image.error });
@@ -78,45 +79,14 @@ app.post("/api/image-metadata", async (req: Request, res: Response) => {
       return;
     }
 
-    const birdCheckerAgent = mastra.getAgent("birdCheckerAgent");
+    const response = await promptOpenai({ imageUrl });
 
-    if (!birdCheckerAgent) {
-      res.sendStatus(404);
+    if (!response.ok) {
+      res.status(400).send({ msg: response.error });
       return;
     }
 
-    const response = await birdCheckerAgent.generate(
-      [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              image: imageUrl,
-            },
-            {
-              type: "text",
-              text: "view this image and let me know if it's a bird or not, and the scientific name of the bird without any explanation. Also summarize the location for this picture in one or two short sentences understandable by a high school student",
-            },
-          ],
-        },
-      ],
-      {
-        structuredOutput: {
-          schema: z.object({
-            bird: z.boolean(),
-            species: z.string(),
-            location: z.string(),
-          }),
-        },
-      },
-    );
-
-    const { object } = response;
-
-    console.log("response==", JSON.stringify(object, null, 2));
-
-    res.send(object);
+    res.send(response.data);
   } catch (err) {
     console.log("get image metadata err===", err);
     res.status(400).send({ msg: "Could not fetch image metadata" });
