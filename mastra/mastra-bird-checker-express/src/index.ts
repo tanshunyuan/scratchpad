@@ -4,7 +4,8 @@
 import express, { type Request, type Response } from "express";
 import { MastraServer } from "@mastra/express";
 import { mastra } from "./mastra";
-import 'dotenv/config'
+import { type ImageQuery, getRandomImage } from "./helper/utils";
+import { z } from "zod";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,10 +13,13 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(express.json());
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  if (req.method === 'OPTIONS') {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization",
+  );
+  if (req.method === "OPTIONS") {
     return res.sendStatus(200);
   }
   next();
@@ -31,13 +35,92 @@ app.use((req, res, next) => {
 const server = new MastraServer({
   app,
   mastra,
-  openapiPath: '/openapi.json'
+  openapiPath: "/openapi.json",
 });
 await server.init();
+
+// Debug: check if routes are registered
+console.log(
+  "Express app routes:",
+  (app as any)._router?.stack?.length || 0,
+  "middlewares loaded",
+);
 
 // Routes
 app.get("/", (_req: Request, res: Response) => {
   res.json({ message: "Hello, World!" });
+});
+
+app.get("/api/get-unsplash-image", async (req: Request, res: Response) => {
+  try {
+    const imageQuery = (req?.query?.query || "wildlife") as ImageQuery;
+
+    const image = await getRandomImage({ query: imageQuery });
+
+    if (!image.ok) {
+      res.status(400).send({ msg: image.error });
+      return;
+    }
+
+    res.send(image.data);
+  } catch (err) {
+    console.log("get unsplash image err===", err);
+    res.status(400).send({ msg: "Could not fetch image" });
+  }
+});
+
+app.post("/api/image-metadata", async (req: Request, res: Response) => {
+  try {
+    const imageUrl = req.body?.imageUrl;
+
+    if (!imageUrl) {
+      res.status(400).send({ msg: "Image url is required" });
+      return;
+    }
+
+    const birdCheckerAgent = mastra.getAgent("birdCheckerAgent");
+
+    if (!birdCheckerAgent) {
+      res.sendStatus(404);
+      return;
+    }
+
+    const response = await birdCheckerAgent.generate(
+      [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              image: imageUrl,
+            },
+            {
+              type: "text",
+              text: "view this image and let me know if it's a bird or not, and the scientific name of the bird without any explanation. Also summarize the location for this picture in one or two short sentences understandable by a high school student",
+            },
+          ],
+        },
+      ],
+      {
+        structuredOutput: {
+          schema: z.object({
+            bird: z.boolean(),
+            species: z.string(),
+            location: z.string(),
+          }),
+        },
+      },
+    );
+
+    const { object } = response;
+
+    console.log("response==", JSON.stringify(object, null, 2));
+
+    res.send(object);
+  } catch (err) {
+    console.log("get image metadata err===", err);
+    res.status(400).send({ msg: "Could not fetch image metadata" });
+  }
 });
 
 // Start server
@@ -46,3 +129,4 @@ app.listen(PORT, () => {
 });
 
 // curl -X POST http://localhost:3000/api/agents/weather-agent/generate -H "Content-Type: application/json" -d "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather like in Seoul?\"}]}"
+// to visit the openapi: use /api/openapi

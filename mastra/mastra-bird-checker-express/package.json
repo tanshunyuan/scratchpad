@@ -24,6 +24,7 @@
     "@mastra/loggers": "^1.0.1",
     "@mastra/memory": "^1.1.0",
     "@mastra/observability": "^1.2.0",
+    "@t3-oss/env-core": "^0.13.10",
     "dotenv": "^17.2.4",
     "express": "^5.2.1",
     "mastra": "^1.2.0",
