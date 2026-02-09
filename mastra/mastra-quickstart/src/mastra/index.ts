@@ -23,6 +23,8 @@ import { searchAgent } from "./agents/search-agent";
 import { researchAgent } from "./agents/research-agent";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
+import { email } from "zod/mini";
+import { emailHitlWorkflow } from "./workflows/email-hitl-workflow";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -44,7 +46,7 @@ const VECTOR_PATH = `file:${path.join(DB_PATH, "vector.db")}`;
 console.log(`VECTOR_PATH: ${VECTOR_PATH}\nSTORAGE_PATH: ${STORAGE_PATH}`);
 
 export const mastra = new Mastra({
-  workflows: { weatherWorkflow, candidateWorkflow },
+  workflows: { weatherWorkflow, candidateWorkflow, emailHitlWorkflow },
   agents: { weatherAgent, chefAgent, stockAgent, searchAgent, researchAgent },
   scorers: {
     toolCallAppropriatenessScorer,
