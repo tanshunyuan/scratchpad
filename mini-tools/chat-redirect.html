@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <title>Page Title</title>
+
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+            }
+            body {
+                font-family: monospace;
+                margin: 1rem;
+            }
+        </style>
+    </head>
+    <body>
+        <!--<div
+            id="initial-chat-container"
+            style="
+                height: 100vh;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+            "
+        >
+            <form
+                id="chat-form"
+                style="
+                    width: 60%;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.5rem;
+                "
+            >
+                <h1 style="text-align: center">What's on your mind?</h1>
+                <textarea
+                    style="resize: none; padding: 8px"
+                    id="chat-area"
+                    rows="4"
+                    cols="10"
+                    placeholder="Type a message..."
+                ></textarea>
+                <button
+                    type="submit"
+                    id="go-btn"
+                    style="
+                        padding-inline: 0.5rem;
+                        padding-block: 0.5rem;
+                        width: max-content;
+                        align-self: self-end;
+                    "
+                >
+                    Start thread
+                </button>
+            </form>
+        </div>-->
+
+        <div
+            id="thread-chat-container"
+            style="height: 100vh; margin-inline: 10rem"
+        >
+            <div
+                id="thread-chat-messages"
+                style="
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.5rem;
+                    margin-bottom: 1rem;
+                "
+            >
+                <div
+                    id="thread-chat-message-user"
+                    style="
+                        background-color: lightgray;
+                        border-radius: 0.25rem;
+                        padding: 0.25rem 0.4rem;
+                        align-self: flex-end;
+                    "
+                >
+                    <p>test</p>
+                </div>
+                <div
+                    id="thread-chat-message-agent"
+                    style="
+                        background-color: whitesmoke;
+                        border: 1px solid lightgray;
+                        border-radius: 0.25rem;
+                        padding: 0.25rem 0.4rem;
+                    "
+                >
+                    <p>
+                        That's interesting. In a real implementation this is
+                        where the API response would come in.
+                    </p>
+                </div>
+            </div>
+            <form id="thread-chat-form" style="display: flex; gap: 0.5rem">
+                <textarea
+                    id="continue-thread-textarea"
+                    placeholder="Continue the thread..."
+                    style="resize: none; padding: 0.25rem; width: 100%"
+                ></textarea>
+                <button
+                    style="padding-inline: 0.5rem"
+                    id="send-btn"
+                    type="submit"
+                >
+                    Send
+                </button>
+            </form>
+        </div>
+    </body>
+
+    <script>
+        // const initialChatContainer = document.getElementById(
+        //     "initial-chat-container",
+        // );
+        // const chatForm = document.getElementById("chat-form");
+        // const chatArea = document.getElementById("chat-area");
+        // const button = document.getElementById("go-btn");
+
+        // function renderAnotherChat(message) {
+        //     const threadId = self.crypto.randomUUID();
+        //     const container = document.createElement("div");
+        //     const textnode = document.createTextNode(`${threadId}: ${message}`);
+        //     container.appendChild(textnode);
+        //     document.body.appendChild(container);
+        // }
+
+        // async function handleSubmission() {
+        //     button.textContent = "loading";
+        //     button.style.disabled = true;
+
+        //     const textareaValue = chatArea.value;
+
+        //     await new Promise((resolve) => {
+        //         setTimeout(() => {
+        //             button.textContent = "submitted";
+        //             resolve();
+        //         }, 500);
+        //     });
+
+        //     await new Promise((resolve) => {
+        //         setTimeout(() => {
+        //             button.textContent = "Submit";
+
+        //             initialChatContainer.style.display = "none";
+        //             renderAnotherChat(textareaValue);
+        //             chatArea.value = "";
+        //             // resolve informs the promise it's done
+        //             resolve();
+        //         }, 500);
+        //     });
+        // }
+
+        // /**@todo naive implementation */
+        // let keydownHistory = [];
+        // chatArea.addEventListener("keydown", async function (event) {
+        //     keydownHistory.push(event.keyCode);
+        //     const enterKeyCode = 13;
+        //     const metaKeyCode = 224;
+        //     const lastTwoKeydown = keydownHistory.slice(-2);
+        //     if (
+        //         lastTwoKeydown[0] === metaKeyCode &&
+        //         lastTwoKeydown[1] === enterKeyCode
+        //     ) {
+        //         await handleSubmission();
+        //         keydownHistory = [];
+        //     }
+        // });
+
+        // chatForm.addEventListener("submit", async function (event) {
+        //     event.preventDefault();
+        //     await handleSubmission();
+        // });
+
+        // chat thread
+        const threadMessageHistory = [
+            {
+                id: "ljfdslkj",
+                role: "user",
+                content: "test",
+            },
+            {
+                id: "fldsjfls",
+                role: "agent",
+                content:
+                    "That's interesting. In a real implementation this is where the API response would come in.",
+            },
+        ];
+        const threadChatMessages = document.getElementById(
+            "thread-chat-messages",
+        );
+        threadMessageHistory.forEach((message) => {
+            switch (message.role) {
+                case "user":
+                    const threadChatMessageUser = document.createElement("div");
+                    threadChatMessageUser.id = `thread-chat-message-user_${message.id}`;
+                    threadChatMessageUser.style =
+                        "background-color: lightgray; border-radius: 0.25rem; padding: 0.25rem 0.4rem; align-self: flex-end;";
+                    const textNode = document.createTextNode(message.content);
+                    threadChatMessageUser.appendChild(textNode);
+                    threadChatMessages.appendChild(threadChatMessageUser);
+
+                    break;
+                case "agent":
+                    break;
+            }
+        });
+
+        const threadChatForm = document.getElementById("thread-chat-form");
+        threadChatForm.addEventListener("submit", async function (event) {
+            event.preventDefault();
+            const continueThreadTextarea =
+                threadChatForm.elements["continue-thread-textarea"];
+            const threadMessageId = `msg_${self.crypto.randomUUID()}`;
+            threadMessageHistory.push({
+                id: threadMessageId,
+                role: "user",
+                content: continueThreadTextarea.textContent,
+            });
+            threadMessageHistory.push({
+                id: threadMessageId,
+                role: "agent",
+                content:
+                    "That's interesting. In a real implementation this is where the API response would come in.",
+            });
+        });
+    </script>
+</html>
