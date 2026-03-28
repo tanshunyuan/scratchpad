@@ -15,7 +15,7 @@
         </style>
     </head>
     <body>
-        <!--<div
+        <div
             id="initial-chat-container"
             style="
                 height: 100vh;
@@ -54,11 +54,11 @@
                     Start thread
                 </button>
             </form>
-        </div>-->
+        </div>
 
         <div
             id="thread-chat-container"
-            style="height: 100vh; margin-inline: 10rem"
+            style="height: 100vh; margin-inline: 10rem; display: none"
         >
             <div
                 id="thread-chat-messages"
@@ -87,67 +87,71 @@
     </body>
 
     <script>
-        // const initialChatContainer = document.getElementById(
-        //     "initial-chat-container",
-        // );
-        // const chatForm = document.getElementById("chat-form");
-        // const chatArea = document.getElementById("chat-area");
-        // const button = document.getElementById("go-btn");
+        const initialChatContainer = document.getElementById(
+            "initial-chat-container",
+        );
+        const threadChatContainer = document.getElementById(
+            "thread-chat-container",
+        );
 
-        // function renderAnotherChat(message) {
-        //     const threadId = self.crypto.randomUUID();
-        //     const container = document.createElement("div");
-        //     const textnode = document.createTextNode(`${threadId}: ${message}`);
-        //     container.appendChild(textnode);
-        //     document.body.appendChild(container);
-        // }
+        const chatForm = document.getElementById("chat-form");
+        const chatArea = document.getElementById("chat-area");
+        const button = document.getElementById("go-btn");
 
-        // async function handleSubmission() {
-        //     button.textContent = "loading";
-        //     button.style.disabled = true;
+        function renderAnotherChat(message) {
+            const threadId = self.crypto.randomUUID();
+            const container = document.createElement("div");
+            const textnode = document.createTextNode(`${threadId}: ${message}`);
+            container.appendChild(textnode);
+            document.body.appendChild(container);
+        }
 
-        //     const textareaValue = chatArea.value;
+        async function handleSubmission() {
+            button.textContent = "loading";
+            button.style.disabled = true;
 
-        //     await new Promise((resolve) => {
-        //         setTimeout(() => {
-        //             button.textContent = "submitted";
-        //             resolve();
-        //         }, 500);
-        //     });
+            const textareaValue = chatArea.value;
 
-        //     await new Promise((resolve) => {
-        //         setTimeout(() => {
-        //             button.textContent = "Submit";
+            await new Promise((resolve) => {
+                setTimeout(() => {
+                    button.textContent = "submitted";
+                    resolve();
+                }, 500);
+            });
 
-        //             initialChatContainer.style.display = "none";
-        //             renderAnotherChat(textareaValue);
-        //             chatArea.value = "";
-        //             // resolve informs the promise it's done
-        //             resolve();
-        //         }, 500);
-        //     });
-        // }
+            await new Promise((resolve) => {
+                setTimeout(() => {
+                    button.textContent = "Submit";
 
-        // /**@todo naive implementation */
-        // let keydownHistory = [];
-        // chatArea.addEventListener("keydown", async function (event) {
-        //     keydownHistory.push(event.keyCode);
-        //     const enterKeyCode = 13;
-        //     const metaKeyCode = 224;
-        //     const lastTwoKeydown = keydownHistory.slice(-2);
-        //     if (
-        //         lastTwoKeydown[0] === metaKeyCode &&
-        //         lastTwoKeydown[1] === enterKeyCode
-        //     ) {
-        //         await handleSubmission();
-        //         keydownHistory = [];
-        //     }
-        // });
+                    initialChatContainer.setAttribute("style", "display: none");
+                    threadChatContainer.setAttribute("style", "display: block");
+                    chatArea.value = "";
+                    // resolve informs the promise it's done
+                    resolve();
+                }, 500);
+            });
+        }
 
-        // chatForm.addEventListener("submit", async function (event) {
-        //     event.preventDefault();
-        //     await handleSubmission();
-        // });
+        /**@todo naive implementation */
+        let keydownHistory = [];
+        chatArea.addEventListener("keydown", async function (event) {
+            keydownHistory.push(event.keyCode);
+            const enterKeyCode = 13;
+            const metaKeyCode = 224;
+            const lastTwoKeydown = keydownHistory.slice(-2);
+            if (
+                lastTwoKeydown[0] === metaKeyCode &&
+                lastTwoKeydown[1] === enterKeyCode
+            ) {
+                await handleSubmission();
+                keydownHistory = [];
+            }
+        });
+
+        chatForm.addEventListener("submit", async function (event) {
+            event.preventDefault();
+            await handleSubmission();
+        });
 
         // chat thread
 
