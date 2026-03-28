@@ -70,29 +70,17 @@
                 "
             >
                 <div
-                    id="thread-chat-message-user"
+                    id="thread-chat-message-loader"
                     style="
-                        background-color: lightgray;
-                        border-radius: 0.25rem;
-                        padding: 0.25rem 0.4rem;
-                        align-self: flex-end;
-                    "
-                >
-                    <p>test</p>
-                </div>
-                <div
-                    id="thread-chat-message-agent"
-                    style="
+                        display: none;
                         background-color: whitesmoke;
                         border: 1px solid lightgray;
                         border-radius: 0.25rem;
                         padding: 0.25rem 0.4rem;
+                        width: min-content;
                     "
                 >
-                    <p>
-                        That's interesting. In a real implementation this is
-                        where the API response would come in.
-                    </p>
+                    <p>...</p>
                 </div>
             </div>
             <form id="thread-chat-form" style="display: flex; gap: 0.5rem">
@@ -176,56 +164,142 @@
         // });
 
         // chat thread
-        const threadMessageHistory = [
-            {
-                id: "ljfdslkj",
-                role: "user",
-                content: "test",
-            },
-            {
-                id: "fldsjfls",
-                role: "agent",
-                content:
-                    "That's interesting. In a real implementation this is where the API response would come in.",
-            },
-        ];
-        const threadChatMessages = document.getElementById(
-            "thread-chat-messages",
-        );
-        threadMessageHistory.forEach((message) => {
-            switch (message.role) {
-                case "user":
-                    const threadChatMessageUser = document.createElement("div");
-                    threadChatMessageUser.id = `thread-chat-message-user_${message.id}`;
-                    threadChatMessageUser.style =
-                        "background-color: lightgray; border-radius: 0.25rem; padding: 0.25rem 0.4rem; align-self: flex-end;";
-                    const textNode = document.createTextNode(message.content);
-                    threadChatMessageUser.appendChild(textNode);
-                    threadChatMessages.appendChild(threadChatMessageUser);
 
-                    break;
-                case "agent":
-                    break;
+        /**
+         * @params threadMessageHistory
+         * @example
+         *
+         * [
+         *   {
+         *       id: "ljfdslkj",
+         *       role: "user",
+         *       content: "test",
+         *   },
+         *   {
+         *       id: "fldsjfls",
+         *       role: "agent",
+         *       content:
+         *           "That's interesting. In a real implementation this is where the API response would come in.",
+         *   },
+         * ];
+         */
+        const renderThreadMessageHistory = async (threadMessageHistory) => {
+            const threadChatMessages = document.getElementById(
+                "thread-chat-messages",
+            );
+            for (const message of threadMessageHistory) {
+                switch (message.role) {
+                    case "user": {
+                        const threadChatMessageUserContainer =
+                            document.createElement("div");
+                        threadChatMessageUserContainer.id = `thread-chat-message-user_${message.id}`;
+                        threadChatMessageUserContainer.style =
+                            "background-color: lightgray; border-radius: 0.25rem; padding: 0.25rem 0.4rem; align-self: flex-end;";
+                        const textNode = document.createTextNode(
+                            message.content,
+                        );
+                        const threadChatMessageUserParagraph =
+                            document.createElement("p");
+                        threadChatMessageUserParagraph.appendChild(textNode);
+                        threadChatMessageUserContainer.appendChild(
+                            threadChatMessageUserParagraph,
+                        );
+                        threadChatMessages.appendChild(
+                            threadChatMessageUserContainer,
+                        );
+
+                        break;
+                    }
+                    case "agent": {
+                        const threadChatMessageAgentContainer =
+                            document.createElement("div");
+                        threadChatMessageAgentContainer.id = `thread-chat-message-agent_${message.id}`;
+                        threadChatMessageAgentContainer.style =
+                            "background-color: whitesmoke; border: 1px solid lightgray; border-radius: 0.25rem; padding: 0.25rem 0.4rem;";
+                        const chunks = message.content.split(" ");
+                        let textNode = document.createTextNode("");
+                        const threadChatMessageAgentParagraph =
+                            document.createElement("p");
+                        threadChatMessageAgentParagraph.appendChild(textNode);
+                        threadChatMessageAgentContainer.appendChild(
+                            threadChatMessageAgentParagraph,
+                        );
+
+                        threadChatMessages.appendChild(
+                            threadChatMessageAgentContainer,
+                        );
+                        for (const chunk of chunks) {
+                            await new Promise((resolve) => {
+                                setTimeout(() => {
+                                    textNode.textContent += `${chunk} `;
+                                    resolve();
+                                }, 50);
+                            });
+                        }
+
+                        break;
+                    }
+                }
             }
-        });
+        };
+        renderThreadMessageHistory([]);
 
         const threadChatForm = document.getElementById("thread-chat-form");
-        threadChatForm.addEventListener("submit", async function (event) {
+        const continueThreadTextarea = document.getElementById(
+            "continue-thread-textarea",
+        );
+        async function handleThreadChatSubmission(event) {
+            console.log("handleThreadChatSubmission");
             event.preventDefault();
-            const continueThreadTextarea =
-                threadChatForm.elements["continue-thread-textarea"];
+            const threadMessageHistory = [];
+            const sendBtn = document.getElementById("send-btn");
+            const threadChatMessageLoader = document.getElementById(
+                "thread-chat-message-loader",
+            );
             const threadMessageId = `msg_${self.crypto.randomUUID()}`;
-            threadMessageHistory.push({
-                id: threadMessageId,
-                role: "user",
-                content: continueThreadTextarea.textContent,
+            sendBtn.disabled = true;
+            continueThreadTextarea.disabled = true;
+            threadChatMessageLoader.style.display = "block";
+            await renderThreadMessageHistory([
+                {
+                    id: threadMessageId,
+                    role: "user",
+                    content: continueThreadTextarea.value,
+                },
+            ]);
+            await new Promise((resolve) => {
+                setTimeout(resolve, 500);
             });
-            threadMessageHistory.push({
-                id: threadMessageId,
-                role: "agent",
-                content:
-                    "That's interesting. In a real implementation this is where the API response would come in.",
+            threadChatMessageLoader.style.display = "none";
+
+            await new Promise((resolve) => {
+                setTimeout(resolve, 500);
             });
+            await renderThreadMessageHistory([
+                {
+                    id: threadMessageId,
+                    role: "agent",
+                    content:
+                        "That's interesting. In a real implementation this is where the API response would come in.",
+                },
+            ]);
+            continueThreadTextarea.value = "";
+            continueThreadTextarea.disabled = false;
+            sendBtn.disabled = false;
+        }
+
+        threadChatForm.addEventListener("submit", async function (event) {
+            await handleThreadChatSubmission(event);
         });
+
+        continueThreadTextarea.addEventListener(
+            "keydown",
+            async function (event) {
+                const enterKeyCode = 13;
+                if (event.keyCode === enterKeyCode) {
+                    await handleThreadChatSubmission(event);
+                }
+            },
+        );
     </script>
 </html>
