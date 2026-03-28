@@ -25,7 +25,7 @@
             "
         >
             <form
-                id="chat-form"
+                id="initial-chat-form"
                 style="
                     width: 60%;
                     display: flex;
@@ -36,14 +36,14 @@
                 <h1 style="text-align: center">What's on your mind?</h1>
                 <textarea
                     style="resize: none; padding: 8px"
-                    id="chat-area"
+                    id="initial-chat-textarea"
                     rows="4"
                     cols="10"
                     placeholder="Type a message..."
                 ></textarea>
                 <button
                     type="submit"
-                    id="go-btn"
+                    id="initial-start-thread-btn"
                     style="
                         padding-inline: 0.5rem;
                         padding-block: 0.5rem;
@@ -90,51 +90,60 @@
         const initialChatContainer = document.getElementById(
             "initial-chat-container",
         );
+        const initialChatForm = document.getElementById("initial-chat-form");
+        const initialChatTextarea = document.getElementById(
+            "initial-chat-textarea",
+        );
+        const initialStartThreadBtn = document.getElementById(
+            "initial-start-thread-btn",
+        );
+
         const threadChatContainer = document.getElementById(
             "thread-chat-container",
         );
 
-        const chatForm = document.getElementById("chat-form");
-        const chatArea = document.getElementById("chat-area");
-        const button = document.getElementById("go-btn");
-
-        function renderAnotherChat(message) {
-            const threadId = self.crypto.randomUUID();
-            const container = document.createElement("div");
-            const textnode = document.createTextNode(`${threadId}: ${message}`);
-            container.appendChild(textnode);
-            document.body.appendChild(container);
+        function initialChatFormControlState(state) {
+            switch (state) {
+                case "loading": {
+                    initialChatTextarea.disabled = true;
+                    initialStartThreadBtn.textContent = "loading...";
+                    initialStartThreadBtn.disabled = true;
+                    break;
+                }
+                case "done":
+                    initialChatTextarea.disabled = false;
+                    initialChatTextarea.value = "";
+                    initialStartThreadBtn.textContent = "Submit";
+                    initialStartThreadBtn.disabled = false;
+                    break;
+            }
         }
-
-        async function handleSubmission() {
-            button.textContent = "loading";
-            button.style.disabled = true;
-
-            const textareaValue = chatArea.value;
+        async function handleInitialChatSubmission() {
+            initialChatFormControlState("loading");
 
             await new Promise((resolve) => {
                 setTimeout(() => {
-                    button.textContent = "submitted";
-                    resolve();
-                }, 500);
-            });
-
-            await new Promise((resolve) => {
-                setTimeout(() => {
-                    button.textContent = "Submit";
-
                     initialChatContainer.setAttribute("style", "display: none");
                     threadChatContainer.setAttribute("style", "display: block");
-                    chatArea.value = "";
+                    threadChatContainer.insertAdjacentHTML(
+                        "afterbegin",
+                        `<p>thread: ${self.crypto.randomUUID()}</p>`,
+                    );
+                    renderThreadMessageHistory({
+                        id: `msg_${self.crypto.randomUUID()}`,
+                        role: "user",
+                        content: initialChatTextarea.value,
+                    });
                     // resolve informs the promise it's done
                     resolve();
-                }, 500);
+                }, 1000);
             });
+            initialChatFormControlState("done");
         }
 
         /**@todo naive implementation */
         let keydownHistory = [];
-        chatArea.addEventListener("keydown", async function (event) {
+        initialChatTextarea.addEventListener("keydown", async function (event) {
             keydownHistory.push(event.keyCode);
             const enterKeyCode = 13;
             const metaKeyCode = 224;
@@ -143,17 +152,54 @@
                 lastTwoKeydown[0] === metaKeyCode &&
                 lastTwoKeydown[1] === enterKeyCode
             ) {
-                await handleSubmission();
+                await handleInitialChatSubmission();
                 keydownHistory = [];
             }
         });
 
-        chatForm.addEventListener("submit", async function (event) {
+        initialChatForm.addEventListener("submit", async function (event) {
             event.preventDefault();
-            await handleSubmission();
+            await handleInitialChatSubmission();
         });
 
         // chat thread
+        const threadChatMessages = document.getElementById(
+            "thread-chat-messages",
+        );
+        console.log(threadChatContainer);
+        const observer = new MutationObserver(async function (
+            mutationList,
+            observer,
+        ) {
+            for (const mutation of mutationList) {
+                if ((mutation.attributeName = "style")) {
+                    if (threadChatContainer.style.display === "block") {
+                        const threadChatMessages = document.getElementById(
+                            "thread-chat-messages",
+                        );
+                        const threadChatMessageAgentLoader =
+                            renderThreadChatMessageAgentLoader();
+
+                        threadChatMessages.appendChild(
+                            threadChatMessageAgentLoader,
+                        );
+
+                        await new Promise((resolve) => {
+                            setTimeout(resolve, 500);
+                        });
+                        threadChatMessageAgentLoader.remove();
+                        const threadMessageId = `msg_${self.crypto.randomUUID()}`;
+                        await renderThreadMessageHistory({
+                            id: threadMessageId,
+                            role: "agent",
+                            content:
+                                "That's interesting. In a real implementation this is where the API response would come in.",
+                        });
+                    }
+                }
+            }
+        });
+        observer.observe(threadChatContainer, { attributes: true });
 
         /**
          * @params threadMessageHistory
@@ -183,66 +229,62 @@
             container.innerHTML = `<p>...</p>`;
             return container;
         }
-        const renderThreadMessageHistory = async (threadMessageHistory) => {
-            const threadChatMessages = document.getElementById(
-                "thread-chat-messages",
-            );
-            for (const message of threadMessageHistory) {
-                switch (message.role) {
-                    case "user": {
-                        const threadChatMessageUserContainer =
-                            document.createElement("div");
-                        threadChatMessageUserContainer.id = `thread-chat-message-user_${message.id}`;
-                        threadChatMessageUserContainer.style =
-                            "background-color: lightgray; border-radius: 0.25rem; padding: 0.25rem 0.4rem; align-self: flex-end;";
-                        const textNode = document.createTextNode(
-                            message.content,
-                        );
-                        const threadChatMessageUserParagraph =
-                            document.createElement("p");
-                        threadChatMessageUserParagraph.appendChild(textNode);
-                        threadChatMessageUserContainer.appendChild(
-                            threadChatMessageUserParagraph,
-                        );
-                        threadChatMessages.appendChild(
-                            threadChatMessageUserContainer,
-                        );
+        const renderThreadMessageHistory = async (message) => {
+            console.log("renderThreadMessage ==> ", {
+                role: message.role,
+                content: message.content,
+            });
+            switch (message.role) {
+                case "user": {
+                    const threadChatMessageUserContainer =
+                        document.createElement("div");
+                    threadChatMessageUserContainer.id = `thread-chat-message-user_${message.id}`;
+                    threadChatMessageUserContainer.style =
+                        "background-color: lightgray; border-radius: 0.25rem; padding: 0.25rem 0.4rem; align-self: flex-end;";
+                    const textNode = document.createTextNode(message.content);
+                    const threadChatMessageUserParagraph =
+                        document.createElement("p");
+                    threadChatMessageUserParagraph.appendChild(textNode);
+                    threadChatMessageUserContainer.appendChild(
+                        threadChatMessageUserParagraph,
+                    );
+                    threadChatMessages.appendChild(
+                        threadChatMessageUserContainer,
+                    );
 
-                        break;
+                    break;
+                }
+                case "agent": {
+                    const threadChatMessageAgentContainer =
+                        document.createElement("div");
+                    threadChatMessageAgentContainer.id = `thread-chat-message-agent_${message.id}`;
+                    threadChatMessageAgentContainer.style =
+                        "background-color: whitesmoke; border: 1px solid lightgray; border-radius: 0.25rem; padding: 0.25rem 0.4rem;";
+                    const chunks = message.content.split(" ");
+                    let textNode = document.createTextNode("");
+                    const threadChatMessageAgentParagraph =
+                        document.createElement("p");
+                    threadChatMessageAgentParagraph.appendChild(textNode);
+                    threadChatMessageAgentContainer.appendChild(
+                        threadChatMessageAgentParagraph,
+                    );
+
+                    threadChatMessages.appendChild(
+                        threadChatMessageAgentContainer,
+                    );
+                    for (const chunk of chunks) {
+                        await new Promise((resolve) => {
+                            setTimeout(() => {
+                                textNode.textContent += `${chunk} `;
+                                resolve();
+                            }, 50);
+                        });
                     }
-                    case "agent": {
-                        const threadChatMessageAgentContainer =
-                            document.createElement("div");
-                        threadChatMessageAgentContainer.id = `thread-chat-message-agent_${message.id}`;
-                        threadChatMessageAgentContainer.style =
-                            "background-color: whitesmoke; border: 1px solid lightgray; border-radius: 0.25rem; padding: 0.25rem 0.4rem;";
-                        const chunks = message.content.split(" ");
-                        let textNode = document.createTextNode("");
-                        const threadChatMessageAgentParagraph =
-                            document.createElement("p");
-                        threadChatMessageAgentParagraph.appendChild(textNode);
-                        threadChatMessageAgentContainer.appendChild(
-                            threadChatMessageAgentParagraph,
-                        );
 
-                        threadChatMessages.appendChild(
-                            threadChatMessageAgentContainer,
-                        );
-                        for (const chunk of chunks) {
-                            await new Promise((resolve) => {
-                                setTimeout(() => {
-                                    textNode.textContent += `${chunk} `;
-                                    resolve();
-                                }, 50);
-                            });
-                        }
-
-                        break;
-                    }
+                    break;
                 }
             }
         };
-        renderThreadMessageHistory([]);
 
         const threadChatForm = document.getElementById("thread-chat-form");
         const continueThreadTextarea = document.getElementById(
@@ -256,13 +298,11 @@
             const threadMessageId = `msg_${self.crypto.randomUUID()}`;
             sendBtn.disabled = true;
             continueThreadTextarea.disabled = true;
-            await renderThreadMessageHistory([
-                {
-                    id: threadMessageId,
-                    role: "user",
-                    content: continueThreadTextarea.value,
-                },
-            ]);
+            await renderThreadMessageHistory({
+                id: threadMessageId,
+                role: "user",
+                content: continueThreadTextarea.value,
+            });
             await new Promise((resolve) => {
                 setTimeout(resolve, 500);
             });
@@ -278,14 +318,12 @@
                 setTimeout(resolve, 500);
             });
             threadChatMessageAgentLoader.remove();
-            await renderThreadMessageHistory([
-                {
-                    id: threadMessageId,
-                    role: "agent",
-                    content:
-                        "That's interesting. In a real implementation this is where the API response would come in.",
-                },
-            ]);
+            await renderThreadMessageHistory({
+                id: threadMessageId,
+                role: "agent",
+                content:
+                    "That's interesting. In a real implementation this is where the API response would come in.",
+            });
             continueThreadTextarea.value = "";
             continueThreadTextarea.disabled = false;
             sendBtn.disabled = false;
