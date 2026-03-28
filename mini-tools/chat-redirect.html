@@ -122,19 +122,32 @@
             initialChatFormControlState("loading");
 
             await new Promise((resolve) => {
-                setTimeout(() => {
+                setTimeout(async () => {
                     initialChatContainer.setAttribute("style", "display: none");
                     threadChatContainer.setAttribute("style", "display: block");
                     threadChatContainer.insertAdjacentHTML(
                         "afterbegin",
                         `<p>thread: ${self.crypto.randomUUID()}</p>`,
                     );
-                    renderThreadMessageHistory({
+                    await renderThreadMessageHistory({
                         id: `msg_${self.crypto.randomUUID()}`,
                         role: "user",
                         content: initialChatTextarea.value,
                     });
-                    // resolve informs the promise it's done
+
+                    const loader = renderThreadChatMessageAgentLoader();
+                    threadChatMessages.appendChild(loader);
+                    await new Promise((resolve) => setTimeout(resolve, 500));
+                    loader.remove();
+
+                    // 3. agent response
+                    await renderThreadMessageHistory({
+                        id: `msg_${self.crypto.randomUUID()}`,
+                        role: "agent",
+                        content:
+                            "That's interesting. In a real implementation this is where the API response would come in.",
+                    });
+
                     resolve();
                 }, 1000);
             });
@@ -167,39 +180,6 @@
             "thread-chat-messages",
         );
         console.log(threadChatContainer);
-        const observer = new MutationObserver(async function (
-            mutationList,
-            observer,
-        ) {
-            for (const mutation of mutationList) {
-                if ((mutation.attributeName = "style")) {
-                    if (threadChatContainer.style.display === "block") {
-                        const threadChatMessages = document.getElementById(
-                            "thread-chat-messages",
-                        );
-                        const threadChatMessageAgentLoader =
-                            renderThreadChatMessageAgentLoader();
-
-                        threadChatMessages.appendChild(
-                            threadChatMessageAgentLoader,
-                        );
-
-                        await new Promise((resolve) => {
-                            setTimeout(resolve, 500);
-                        });
-                        threadChatMessageAgentLoader.remove();
-                        const threadMessageId = `msg_${self.crypto.randomUUID()}`;
-                        await renderThreadMessageHistory({
-                            id: threadMessageId,
-                            role: "agent",
-                            content:
-                                "That's interesting. In a real implementation this is where the API response would come in.",
-                        });
-                    }
-                }
-            }
-        });
-        observer.observe(threadChatContainer, { attributes: true });
 
         /**
          * @params threadMessageHistory
