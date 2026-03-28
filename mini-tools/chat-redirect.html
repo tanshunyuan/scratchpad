@@ -68,21 +68,7 @@
                     gap: 0.5rem;
                     margin-bottom: 1rem;
                 "
-            >
-                <div
-                    id="thread-chat-message-loader"
-                    style="
-                        display: none;
-                        background-color: whitesmoke;
-                        border: 1px solid lightgray;
-                        border-radius: 0.25rem;
-                        padding: 0.25rem 0.4rem;
-                        width: min-content;
-                    "
-                >
-                    <p>...</p>
-                </div>
-            </div>
+            ></div>
             <form id="thread-chat-form" style="display: flex; gap: 0.5rem">
                 <textarea
                     id="continue-thread-textarea"
@@ -183,6 +169,16 @@
          *   },
          * ];
          */
+        function renderThreadChatMessageAgentLoader() {
+            const container = document.createElement("div");
+            container.setAttribute("id", "thread-chat-message-loader");
+            container.setAttribute(
+                "style",
+                "background-color: whitesmoke; border: 1px solid lightgray; border-radius: 0.25rem; padding: 0.25rem 0.4rem; width: min-content; ",
+            );
+            container.innerHTML = `<p>...</p>`;
+            return container;
+        }
         const renderThreadMessageHistory = async (threadMessageHistory) => {
             const threadChatMessages = document.getElementById(
                 "thread-chat-messages",
@@ -253,13 +249,9 @@
             event.preventDefault();
             const threadMessageHistory = [];
             const sendBtn = document.getElementById("send-btn");
-            const threadChatMessageLoader = document.getElementById(
-                "thread-chat-message-loader",
-            );
             const threadMessageId = `msg_${self.crypto.randomUUID()}`;
             sendBtn.disabled = true;
             continueThreadTextarea.disabled = true;
-            threadChatMessageLoader.style.display = "block";
             await renderThreadMessageHistory([
                 {
                     id: threadMessageId,
@@ -270,11 +262,18 @@
             await new Promise((resolve) => {
                 setTimeout(resolve, 500);
             });
-            threadChatMessageLoader.style.display = "none";
+            const threadChatMessages = document.getElementById(
+                "thread-chat-messages",
+            );
+            const threadChatMessageAgentLoader =
+                renderThreadChatMessageAgentLoader();
+
+            threadChatMessages.appendChild(threadChatMessageAgentLoader);
 
             await new Promise((resolve) => {
                 setTimeout(resolve, 500);
             });
+            threadChatMessageAgentLoader.remove();
             await renderThreadMessageHistory([
                 {
                     id: threadMessageId,
