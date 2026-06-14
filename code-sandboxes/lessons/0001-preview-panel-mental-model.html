@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 0001 — Preview Panel Mental Model</title>
+<style>
+  :root{--ink:#16202a;--muted:#5d6975;--line:#d8d6ce;--paper:#fffdf8;--accent:#2454a6;--ok:#177245;--bad:#9d2b2b}
+  body{font:17px/1.6 system-ui,-apple-system,Segoe UI,sans-serif;max-width:860px;margin:44px auto;padding:0 24px;color:var(--ink);background:var(--paper)}
+  h1{font-size:34px;line-height:1.1;margin:0 0 8px} h2{margin-top:34px;border-top:1px solid var(--line);padding-top:18px}
+  a{color:var(--accent)} code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace} pre{background:#f1efe8;padding:16px;border-radius:12px;overflow:auto}
+  .note{border-left:4px solid var(--accent);padding:8px 14px;background:#f5f7fb}.small{color:var(--muted);font-size:14px}
+  button{display:block;margin:8px 0;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:white;cursor:pointer;text-align:left;min-width:240px}
+  button:hover{border-color:var(--accent)} #feedback{font-weight:700;margin-top:10px}.ok{color:var(--ok)}.bad{color:var(--bad)}
+</style>
+</head>
+<body>
+<h1>Preview panel mental model</h1>
+<p class="small">Mission: add live right-side preview to your Electron coding app, with simple infra.</p>
+
+<section class="note">
+  <strong>Tangible win:</strong> after this lesson, you should know what component owns editor, runtime, preview, env, and logs.
+</section>
+
+<h2>One idea</h2>
+<p>The preview panel is not magic. It is a browser surface loading a real app server.</p>
+<pre>Electron app
+├─ React editor UI
+├─ Electron main process
+│  └─ starts dev server with Node child_process
+└─ Preview pane
+   └─ loads http://localhost:5173</pre>
+
+<p>For local Electron MVP, use a normal dev server like Vite. Vite handles hot module replacement, so saved files update preview quickly. Source: <a href="https://vite.dev/guide/features.html#hot-module-replacement">Vite HMR docs</a>.</p>
+
+<h2>Who does what?</h2>
+<ul>
+  <li><strong>Renderer React app</strong>: file tree, editor, env UI, log UI.</li>
+  <li><strong>Electron main</strong>: trusted side. Starts/stops app process, reads/writes files, stores env.</li>
+  <li><strong>Dev server</strong>: runs user app, usually <code>npm run dev</code>.</li>
+  <li><strong>Preview pane</strong>: loads dev server URL using <code>WebContentsView</code> or iframe. Source: <a href="https://www.electronjs.org/docs/latest/api/web-contents-view">Electron WebContentsView docs</a>.</li>
+</ul>
+
+<h2>Smallest working flow</h2>
+<pre>1. User opens project folder.
+2. Electron main runs: npm install if needed.
+3. Electron main runs: npm run dev.
+4. Main waits until port is ready.
+5. Preview loads http://localhost:PORT.
+6. Editor saves file.
+7. Vite HMR refreshes preview.</pre>
+
+<h2>Where env fits</h2>
+<p>Env panel stores key/value pairs. Electron main injects them when spawning dev server. Node supports this with <code>child_process.spawn()</code>. Source: <a href="https://nodejs.org/api/child_process.html">Node child_process docs</a>.</p>
+<pre>spawn('npm', ['run', 'dev'], {
+  cwd: projectDir,
+  env: {
+    ...process.env,
+    ...projectEnv
+  }
+})</pre>
+
+<h2>When Docker becomes useful</h2>
+<p>Skip Docker for first MVP if code is yours/trusted. Add Docker when code becomes untrusted, dependencies conflict, or you need reproducible isolation. Source: <a href="https://docs.docker.com/engine/containers/run/">Docker container docs</a>.</p>
+<pre>Electron → local Node controller → Docker container → port mapping → preview</pre>
+
+<h2>Security rule</h2>
+<p>Preview may run arbitrary user JS. Keep it isolated. Do not give preview Node access. Follow Electron security guidance: <a href="https://www.electronjs.org/docs/latest/tutorial/security">Electron Security Tutorial</a>.</p>
+
+<h2>Retrieval check</h2>
+<p>Question: in local MVP, what should preview pane load?</p>
+<button onclick="check(false)">Project file path</button>
+<button onclick="check(true)">Dev server URL</button>
+<button onclick="check(false)">Docker image ID</button>
+<button onclick="check(false)">Editor state JSON</button>
+<p id="feedback"></p>
+
+<h2>Next tiny build step</h2>
+<p>Create one Electron window with two panes: left React editor placeholder, right preview loading <code>http://localhost:5173</code>. Then replace hardcoded URL with port returned by your runner.</p>
+
+<p>Reference: <a href="../reference/electron-preview-architecture.html">Electron Preview Architecture</a></p>
+<p class="small">Ask agent follow-up: “show me minimal Electron code for this local MVP”.</p>
+
+<script>
+function check(ok){
+  const el = document.getElementById('feedback');
+  if(ok){ el.textContent = 'Correct: preview loads running app server URL.'; el.className = 'ok'; }
+  else { el.textContent = 'Not quite: preview should show running app, not source/config.'; el.className = 'bad'; }
+}
+</script>
+</body>
+</html>

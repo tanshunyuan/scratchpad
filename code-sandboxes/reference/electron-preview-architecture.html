@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Electron Preview Architecture Reference</title>
+<style>
+  body{font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif;max-width:900px;margin:40px auto;padding:0 24px;color:#17202a;background:#fff}
+  h1{font-size:32px;margin-bottom:4px} h2{margin-top:32px;border-top:1px solid #ddd;padding-top:18px}
+  code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace} pre{background:#f7f7f4;padding:16px;border-radius:10px;overflow:auto}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{border:1px solid #ddd;border-radius:12px;padding:16px;background:#fcfcfa}
+  @media print{body{margin:0;max-width:none}.card{break-inside:avoid}}
+</style>
+</head>
+<body>
+<h1>Electron Preview Architecture</h1>
+<p>Goal: add right-side live preview to Electron coding app. Not cloud IDE. Not Replit clone.</p>
+
+<h2>Core model</h2>
+<pre>React editor UI
+  → writes project files
+  → Electron main spawns dev server
+  → preview pane loads http://localhost:PORT
+  → dev server HMR updates preview</pre>
+
+<h2>Local MVP pieces</h2>
+<div class="grid">
+  <section class="card"><h3>Editor</h3><p>Monaco or existing editor. Saves file content to project folder.</p></section>
+  <section class="card"><h3>Runner</h3><p>Electron main uses Node <code>child_process.spawn()</code> to run <code>npm run dev</code>.</p></section>
+  <section class="card"><h3>Preview</h3><p><code>WebContentsView</code> or iframe loads local dev-server URL.</p></section>
+  <section class="card"><h3>Logs</h3><p>Pipe child process stdout/stderr to renderer over IPC.</p></section>
+</div>
+
+<h2>Env variables</h2>
+<pre>spawn('npm', ['run', 'dev'], {
+  cwd: projectDir,
+  env: {
+    ...process.env,
+    ...projectEnv
+  }
+})</pre>
+<p>Secrets belong in main process/storage, not React renderer. Only expose public frontend env intentionally.</p>
+
+<h2>When Docker enters</h2>
+<ul>
+  <li>User runs untrusted code.</li>
+  <li>Need reproducible Linux env.</li>
+  <li>Need dependency isolation per project.</li>
+  <li>Need port/process cleanup guarantees.</li>
+</ul>
+<pre>Electron → Node backend → Docker container → app port → preview URL</pre>
+
+<h2>Security defaults</h2>
+<ul>
+  <li>Keep preview isolated from app UI.</li>
+  <li>Do not enable Node integration in preview.</li>
+  <li>Use context isolation.</li>
+  <li>Treat preview content as untrusted if user code can run arbitrary JS.</li>
+</ul>
+
+<h2>Sources</h2>
+<ul>
+  <li><a href="https://www.electronjs.org/docs/latest/api/web-contents-view">Electron WebContentsView</a></li>
+  <li><a href="https://www.electronjs.org/docs/latest/tutorial/security">Electron Security Tutorial</a></li>
+  <li><a href="https://nodejs.org/api/child_process.html">Node child_process</a></li>
+  <li><a href="https://vite.dev/guide/features.html#hot-module-replacement">Vite HMR</a></li>
+  <li><a href="https://docs.docker.com/engine/containers/run/">Docker run containers</a></li>
+</ul>
+</body>
+</html>
