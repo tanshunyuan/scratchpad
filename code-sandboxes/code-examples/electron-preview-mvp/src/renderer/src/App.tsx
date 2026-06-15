@@ -50,7 +50,8 @@ function App(): React.JSX.Element {
       <div style={{}}>
         <button
           onClick={async () => {
-            await window.api.startPreview()
+            const result = await window.api.startPreview()
+            setPreviewUrl(result.previewUrl)
           }}
         >
           start

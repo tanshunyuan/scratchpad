@@ -2,7 +2,6 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { spawn, ChildProcessWithoutNullStreams } from 'node:child_process'
 
 let mainWindow: null | BrowserWindow = null
 
@@ -54,129 +53,55 @@ const sendPreviewStatus = (status: string) => {
   mainWindow?.webContents.send('preview-status', previewStatus)
 }
 
-let devServerProcess: ChildProcessWithoutNullStreams | null = null
+const SERVER_URL = 'http://localhost:8086'
 
-const previewPort = 5174
-const previewUrl = `http://localhost:${previewPort}`
+let previewUrl = ''
+let sandboxId = ''
 
 const startPreviewServer = async () => {
-  if (devServerProcess) {
-    console.log('dev server running')
-    return
-  }
-
   sendPreviewStatus('starting')
 
-  devServerProcess = spawn('pnpm', ['dev', '--port', String(previewPort)], {
-    cwd: join(process.cwd(), '../sample-preview-app'),
-    env: process.env,
-    // don't need shell features, so we skip it
-    // shell: true
+  const response = await fetch(`${SERVER_URL}/sandboxes/start`, {
+    method: 'POST'
   })
 
-  // const projectDir = join(process.cwd(), '../sample-preview-app')
-  // const dockerImage = 'node:24'
-  // const nodeModulesVolume = 'sample-preview-node-modules'
-
-  // devServerProcess = spawn('docker', [
-  //   'run',
-  //   '--rm',
-  //   '-v',
-  //   `${projectDir}:/app`,
-  //   '-v',
-  //   `${nodeModulesVolume}:/app/node_modules`,
-  //   '-w',
-  //   '/app',
-  //   '-p',
-  //   `${previewPort}:${previewPort}`,
-  //   dockerImage,
-  //   'sh',
-  //   '-lc',
-  //   `corepack enable && pnpm install && pnpm dev --host 0.0.0.0 --port ${previewPort}`
-  // ])
-
-  devServerProcess.stdout.on('data', (data) => {
-    console.log(`[preview] ${data}`)
-    mainWindow?.webContents.send('preview-log', {
-      type: 'stdout',
-      text: data.toString()
-    })
-  })
-
-  devServerProcess.stderr.on('data', (data) => {
-    console.error(`[preview] ${data}`)
-    mainWindow?.webContents.send('preview-log', {
-      type: 'stderr',
-      text: data.toString()
-    })
-  })
-
-  devServerProcess.on('error', (error) => {
+  if (!response.ok) {
     sendPreviewStatus('error')
-    mainWindow?.webContents.send('preview-log', {
-      type: 'error',
-      text: error.message
-    })
-  })
-
-  devServerProcess.on('exit', () => {
-    sendPreviewStatus('stopped')
-    devServerProcess = null
-  })
-
-  const previewProcessSnapshot = devServerProcess
-
-  try {
-    await waitForUrl(previewUrl)
-    if (previewProcessSnapshot !== devServerProcess) return
-    sendPreviewStatus('running')
-  } catch (error) {
-    if (previewProcessSnapshot !== devServerProcess) return
-    sendPreviewStatus('error')
-    mainWindow?.webContents.send('preview-log', {
-      type: 'error',
-      text: error instanceof Error ? error.message : String(error)
-    })
+    throw new Error('Something went wrong starting the server')
   }
+
+  const result = (await response.json()) as {
+    previewUrl: string
+    sandboxId: string
+  }
+
+  previewUrl = result.previewUrl
+  sandboxId = result.sandboxId
+  sendPreviewStatus('running')
+
+  return result
 }
 
 const stopPreviewServer = async () => {
-  if (!devServerProcess) {
-    console.log('nothing to stop')
+  if (!sandboxId) {
+    sendPreviewStatus('stopped')
     return
   }
+
   sendPreviewStatus('stopping')
-  const processToStopSnapshot = devServerProcess
 
-  await new Promise<void>((resolve) => {
-    // this is just to register
-    processToStopSnapshot.once('exit', () => resolve())
-
-    const signalSent = processToStopSnapshot.kill('SIGTERM')
-    if (!signalSent) resolve()
+  await fetch(`${SERVER_URL}/sandboxes/${sandboxId}/stop`, {
+    method: 'POST'
   })
+
+  sandboxId = ''
+  previewUrl = ''
+  sendPreviewStatus('stopped')
 }
 
 const restartPreviewServer = async () => {
   await stopPreviewServer()
-  await startPreviewServer()
-}
-
-const waitForUrl = async (url: string, timeoutMs = 15000) => {
-  const startedAt = Date.now()
-
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      const response = await fetch(url)
-      if (response.ok) return
-    } catch (err) {
-      // Server not ready yet.
-      // console.log(err)
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250))
-  }
-
-  throw new Error(`Timed out waiting for ${url}`)
+  return await startPreviewServer()
 }
 
 // This method will be called when Electron has finished
@@ -219,8 +144,7 @@ app.on('window-all-closed', () => {
 // code. You can also put them in separate files and require them here.
 
 ipcMain.handle('preview-start', async () => {
-  await startPreviewServer()
-  return { ok: true }
+  return await startPreviewServer()
 })
 
 ipcMain.handle('preview-stop', async () => {
@@ -233,6 +157,5 @@ ipcMain.handle('preview-get-url', () => {
 })
 
 ipcMain.handle('preview-restart', async () => {
-  await restartPreviewServer()
-  return { ok: true }
+  return await restartPreviewServer()
 })
