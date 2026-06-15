@@ -8,3 +8,4 @@
 - Keep iframe preview for now. Future app may not stay Electron-only, so avoid Electron-specific preview surface as core assumption.
 - Do not prioritize preview command/config detection. Future app can assume templated workspace/code, so command and route can be known ahead of time.
 - Do not frame preview updates around manual editor save. In target app, agent usually edits workspace files; preview should reflect those filesystem changes through dev-server watch/HMR.
+- Docker sandboxing is now desired next. Reason: cloned/local code is closer to remote/untrusted code; Docker provides bridge between local Electron app and isolated runtime.

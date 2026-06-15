@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 0005 — Docker Sandbox Mental Model</title>
+<style>
+  :root{--ink:#16202a;--muted:#5d6975;--line:#d8d6ce;--paper:#fffdf8;--accent:#2454a6;--ok:#177245;--bad:#9d2b2b}
+  body{font:17px/1.6 system-ui,-apple-system,Segoe UI,sans-serif;max-width:880px;margin:44px auto;padding:0 24px;color:var(--ink);background:var(--paper)}
+  h1{font-size:34px;line-height:1.1;margin:0 0 8px} h2{margin-top:34px;border-top:1px solid var(--line);padding-top:18px}
+  a{color:var(--accent)} code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace} pre{background:#f1efe8;padding:16px;border-radius:12px;overflow:auto}
+  .note{border-left:4px solid var(--accent);padding:8px 14px;background:#f5f7fb}.small{color:var(--muted);font-size:14px}
+  button{display:block;margin:8px 0;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:white;cursor:pointer;text-align:left;min-width:300px}
+  button:hover{border-color:var(--accent)} #feedback{font-weight:700;margin-top:10px}.ok{color:var(--ok)}.bad{color:var(--bad)}
+</style>
+</head>
+<body>
+<h1>Docker sandbox mental model</h1>
+<p class="small">Mission: Electron starts isolated preview runtime, iframe still loads a local URL.</p>
+
+<section class="note">
+  <strong>Tangible win:</strong> after this lesson, you should explain how Docker bridges local app, workspace files, and preview URL.
+</section>
+
+<h2>Where you are now</h2>
+<p>Your current runner starts Vite directly on your machine:</p>
+<pre>Electron main
+→ spawn('pnpm', ['dev'])
+→ Vite runs on host
+→ iframe loads http://localhost:5174</pre>
+
+<p>That works. Docker changes <em>where</em> the dev server runs, not what iframe loads.</p>
+
+<h2>One idea</h2>
+<p>Docker adds an isolation boundary between Electron and app code.</p>
+
+<pre>Electron main
+→ spawn('docker', ['run', ...])
+→ container runs pnpm dev
+→ host maps container port 5174
+→ iframe loads http://localhost:5174</pre>
+
+<p>Electron still controls start/stop/logs. The app code runs inside container.</p>
+
+<h2>The four bridges</h2>
+<pre>1. Filesystem bridge: host workspace → container /app
+2. Working-dir bridge: run command from /app
+3. Port bridge: container 5174 → host 5174
+4. Log bridge: docker stdout/stderr → Electron logs</pre>
+
+<p>Docker docs call these bind mounts and published ports. Sources: <a href="https://docs.docker.com/engine/storage/bind-mounts/">Docker bind mounts</a>, <a href="https://docs.docker.com/get-started/docker-concepts/running-containers/publishing-ports/">Docker publishing ports</a>.</p>
+
+<h2>Command shape</h2>
+<pre>docker run --rm \
+  -v /host/workspace:/app \
+  -w /app \
+  -p 5174:5174 \
+  node:22 \
+  sh -lc "corepack enable && pnpm install && pnpm dev --host 0.0.0.0 --port 5174"</pre>
+
+<p>Meaning:</p>
+
+<pre>--rm                 remove container after exit
+-v host:/app         make workspace visible inside container
+-w /app              run command from workspace
+-p 5174:5174         expose container preview to host
+node:22              base runtime image
+sh -lc "..."         run install + dev command inside container</pre>
+
+<h2>Important Vite detail</h2>
+<p>Inside Docker, dev server must listen on all container interfaces:</p>
+
+<pre>pnpm dev --host 0.0.0.0 --port 5174</pre>
+
+<p>If it only listens on container localhost, host port mapping may not reach it. Vite documents <code>--host</code> for exposing server externally. Source: <a href="https://vite.dev/guide/cli.html#dev-server">Vite CLI docs</a>.</p>
+
+<h2>What improves</h2>
+<ul>
+  <li>Dependencies install inside container, not host app environment.</li>
+  <li>Preview process is easier to delete as container.</li>
+  <li>Runtime becomes closer to remote/sandbox model.</li>
+  <li>Electron still gets simple localhost preview URL.</li>
+</ul>
+
+<h2>What Docker does not magically solve</h2>
+<ul>
+  <li>Bind-mounted files can still be changed by container.</li>
+  <li>Network may still be available unless restricted.</li>
+  <li>Secrets must still be handled carefully.</li>
+  <li>Containers are isolation, not perfect security.</li>
+</ul>
+
+<h2>Retrieval check</h2>
+<p>Question: why does Docker preview need <code>-p 5174:5174</code>?</p>
+<button onclick="check(false)">To install pnpm dependencies faster</button>
+<button onclick="check(true)">To expose container port on host</button>
+<button onclick="check(false)">To copy files into the image</button>
+<button onclick="check(false)">To enable React hot reload</button>
+<p id="feedback"></p>
+
+<h2>Next tiny build step</h2>
+<p>Before wiring Electron, run Docker manually against the sample app.</p>
+
+<pre>cd code-examples/sample-preview-app
+
+docker run --rm \
+  -v "$PWD:/app" \
+  -w /app \
+  -p 5174:5174 \
+  node:22 \
+  sh -lc "corepack enable && pnpm install && pnpm dev --host 0.0.0.0 --port 5174"</pre>
+
+<p>Then open:</p>
+<pre>http://localhost:5174</pre>
+
+<p>If browser shows app, Docker bridge works. Electron integration comes after.</p>
+
+<p>Previous: <a href="0004-preview-error-feedback-loop.html">Preview Error Feedback Loop</a></p>
+<p>Reference: <a href="../reference/electron-preview-architecture.html">Electron Preview Architecture</a></p>
+<p class="small">Ask agent follow-up: “help me run the sample preview app inside Docker”.</p>
+
+<script>
+function check(ok){
+  const el = document.getElementById('feedback');
+  if(ok){ el.textContent = 'Correct: port publishing makes container dev server reachable from host iframe.'; el.className = 'ok'; }
+  else { el.textContent = 'Not quite: -p maps container network port to host port.'; el.className = 'bad'; }
+}
+</script>
+</body>
+</html>

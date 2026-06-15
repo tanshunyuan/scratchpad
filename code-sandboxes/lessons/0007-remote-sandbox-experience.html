@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 0007 — Remote Sandbox Experience</title>
+<style>
+  :root{--ink:#16202a;--muted:#5d6975;--line:#d8d6ce;--paper:#fffdf8;--accent:#2454a6;--ok:#177245;--bad:#9d2b2b}
+  body{font:17px/1.6 system-ui,-apple-system,Segoe UI,sans-serif;max-width:880px;margin:44px auto;padding:0 24px;color:var(--ink);background:var(--paper)}
+  h1{font-size:34px;line-height:1.1;margin:0 0 8px} h2{margin-top:34px;border-top:1px solid var(--line);padding-top:18px}
+  a{color:var(--accent)} code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace} pre{background:#f1efe8;padding:16px;border-radius:12px;overflow:auto}
+  .note{border-left:4px solid var(--accent);padding:8px 14px;background:#f5f7fb}.small{color:var(--muted);font-size:14px}
+  button{display:block;margin:8px 0;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:white;cursor:pointer;text-align:left;min-width:320px}
+  button:hover{border-color:var(--accent)} #feedback{font-weight:700;margin-top:10px}.ok{color:var(--ok)}.bad{color:var(--bad)}
+</style>
+</head>
+<body>
+<h1>Remote sandbox experience</h1>
+<p class="small">Mission: preview code in a remote runtime while Electron stays local UI.</p>
+
+<section class="note">
+  <strong>Tangible win:</strong> after this lesson, you should name the pieces needed for remote preview: sync, runner, logs, preview URL, cleanup.
+</section>
+
+<h2>Where local Docker got us</h2>
+<p>Local Docker taught the shape:</p>
+<pre>workspace files
+→ isolated runtime
+→ dev server
+→ preview URL
+→ logs/status back to app</pre>
+
+<p>But local Docker still depends on user machine and local Docker daemon. Remote sandbox moves runtime elsewhere.</p>
+
+<h2>One idea</h2>
+<p>Remote sandbox is local Docker split across network.</p>
+
+<pre>Electron app
+→ upload/sync workspace
+→ remote runner starts container
+→ container runs dev server
+→ service exposes preview URL
+→ Electron iframe loads preview URL
+→ logs stream back</pre>
+
+<h2>Core pieces</h2>
+<pre>1. Workspace sync
+   Local files become remote workdir.
+
+2. Runner API
+   Start, stop, restart sandbox.
+
+3. Remote container
+   Installs deps and runs dev server.
+
+4. Preview routing
+   Public/authorized URL points to container port.
+
+5. Log/status stream
+   stdout/stderr and lifecycle events return to Electron.
+
+6. Cleanup policy
+   Stop container, delete workdir, expire idle sandboxes.</pre>
+
+<h2>Electron barely changes</h2>
+<p>Your current iframe choice still works.</p>
+
+<pre>local Docker iframe URL:  http://localhost:5174
+remote iframe URL:        https://preview-abc.example.com</pre>
+
+<p>The preview surface remains URL-based. That was the right portability constraint.</p>
+
+<h2>Runner API shape</h2>
+<pre>POST /sandboxes
+→ creates sandbox
+→ returns sandboxId
+
+POST /sandboxes/:id/files
+→ uploads workspace snapshot or patch
+
+POST /sandboxes/:id/start
+→ starts container/dev server
+→ returns previewUrl
+
+GET /sandboxes/:id/logs
+→ streams stdout/stderr/status
+
+POST /sandboxes/:id/stop
+→ stops container</pre>
+
+<p>Logs can stream with WebSocket or Server-Sent Events. Sources: <a href="https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API">MDN WebSocket API</a>, <a href="https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events">MDN Server-Sent Events</a>.</p>
+
+<h2>Preview routing model</h2>
+<p>Remote container listens on an internal port. A proxy maps external URL to that container.</p>
+
+<pre>https://preview-abc.example.com
+→ preview proxy
+→ sandbox container :5174</pre>
+
+<p>This is remote version of Docker <code>-p host:container</code>.</p>
+
+<h2>What this unlocks</h2>
+<ul>
+  <li>User does not need Docker locally.</li>
+  <li>Runtime is controlled by your service.</li>
+  <li>Untrusted code runs away from user machine.</li>
+  <li>Sandbox can be killed/discarded centrally.</li>
+</ul>
+
+<h2>What it costs</h2>
+<ul>
+  <li>Backend runner service.</li>
+  <li>File upload/sync protocol.</li>
+  <li>Preview proxy/routing.</li>
+  <li>Auth and access control.</li>
+  <li>Resource limits, timeouts, cleanup jobs.</li>
+</ul>
+
+<h2>Retrieval check</h2>
+<p>Question: in remote sandbox, what replaces <code>localhost:5174</code>?</p>
+<button onclick="check(false)">A local filesystem path</button>
+<button onclick="check(true)">A routed preview URL</button>
+<button onclick="check(false)">A Docker image name</button>
+<button onclick="check(false)">An Electron preload API</button>
+<p id="feedback"></p>
+
+<h2>Next tiny design step</h2>
+<p>Sketch minimal remote runner contract, not full infra:</p>
+
+<pre>startSandbox(workspaceSnapshot) → { sandboxId, previewUrl }
+stopSandbox(sandboxId) → { ok }
+streamLogs(sandboxId) → stdout/stderr/status events</pre>
+
+<p>This is enough to map your current Electron runner to future remote runner.</p>
+
+<p>Previous: <a href="0006-isolated-docker-workdir.html">Isolated Docker Workdir</a></p>
+<p>Reference: <a href="../reference/electron-preview-architecture.html">Electron Preview Architecture</a></p>
+<p class="small">Ask agent follow-up: “help me sketch the minimal remote runner API”.</p>
+
+<script>
+function check(ok){
+  const el = document.getElementById('feedback');
+  if(ok){ el.textContent = 'Correct: iframe loads a remote routed preview URL.'; el.className = 'ok'; }
+  else { el.textContent = 'Not quite: remote preview still resolves to a URL, routed by backend/proxy.'; el.className = 'bad'; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 0006 — Isolated Docker Workdir</title>
+<style>
+  :root{--ink:#16202a;--muted:#5d6975;--line:#d8d6ce;--paper:#fffdf8;--accent:#2454a6;--ok:#177245;--bad:#9d2b2b}
+  body{font:17px/1.6 system-ui,-apple-system,Segoe UI,sans-serif;max-width:880px;margin:44px auto;padding:0 24px;color:var(--ink);background:var(--paper)}
+  h1{font-size:34px;line-height:1.1;margin:0 0 8px} h2{margin-top:34px;border-top:1px solid var(--line);padding-top:18px}
+  a{color:var(--accent)} code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace} pre{background:#f1efe8;padding:16px;border-radius:12px;overflow:auto}
+  .note{border-left:4px solid var(--accent);padding:8px 14px;background:#f5f7fb}.small{color:var(--muted);font-size:14px}
+  button{display:block;margin:8px 0;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:white;cursor:pointer;text-align:left;min-width:310px}
+  button:hover{border-color:var(--accent)} #feedback{font-weight:700;margin-top:10px}.ok{color:var(--ok)}.bad{color:var(--bad)}
+</style>
+</head>
+<body>
+<h1>Isolated Docker workdir</h1>
+<p class="small">Mission: make local Docker a better sandbox bridge before future remote runtime.</p>
+
+<section class="note">
+  <strong>Tangible win:</strong> after this lesson, you should know why writable bind mounts are weak sandboxing, and how to run preview from a disposable copy.
+</section>
+
+<h2>Problem with current Docker shape</h2>
+<p>This command mounts the real workspace as the app directory:</p>
+
+<pre>docker run --rm \
+  -v "$PWD:/app" \
+  -w /app \
+  -p 5174:5174 \
+  node:24 \
+  sh -lc "pnpm install && pnpm dev --host 0.0.0.0 --port 5174"</pre>
+
+<p>It isolates process/dependencies, but not project writes.</p>
+
+<pre>container writes /app/src/App.tsx
+→ host file changes too</pre>
+
+<p>So local Docker is a bridge, not the final sandbox. Source: <a href="https://docs.docker.com/engine/storage/bind-mounts/">Docker bind mount docs</a>.</p>
+
+<h2>Better local shape</h2>
+<p>Run the app from a disposable copy, not the real workspace.</p>
+
+<pre>real workspace
+→ copy to temp preview dir
+→ mount temp preview dir into container
+→ run dev server
+→ discard temp dir on stop/restart</pre>
+
+<p>Now bad app writes hit the temp copy, not the real workspace.</p>
+
+<h2>Manual version</h2>
+<p>From <code>code-examples/sample-preview-app</code>:</p>
+
+<pre>PREVIEW_DIR="/tmp/sample-preview-run"
+rm -rf "$PREVIEW_DIR"
+mkdir -p "$PREVIEW_DIR"
+rsync -a --delete \
+  --exclude node_modules \
+  --exclude .pnpm-store \
+  ./ "$PREVIEW_DIR/"
+
+docker run --rm \
+  -v "$PREVIEW_DIR:/app" \
+  -v sample-preview-node-modules:/app/node_modules \
+  -w /app \
+  -p 5174:5174 \
+  node:24 \
+  sh -lc "corepack enable && pnpm install && pnpm dev --host 0.0.0.0 --port 5174"</pre>
+
+<h2>What improves</h2>
+<ul>
+  <li>Container can mutate <code>/app</code> without touching original workspace.</li>
+  <li>Preview run becomes disposable.</li>
+  <li>Closer to remote sandbox mental model: upload/copy files, run, discard.</li>
+  <li>Electron still gets same iframe URL.</li>
+</ul>
+
+<h2>What still is not solved</h2>
+<ul>
+  <li>User still needs Docker daemon running.</li>
+  <li>Container may still access network unless restricted.</li>
+  <li>Initial file copy can become slow for large projects.</li>
+  <li>Changes made by the running app do not sync back unless you explicitly choose to.</li>
+</ul>
+
+<h2>Future remote sandbox shape</h2>
+<p>This local copy model maps cleanly to remote later:</p>
+
+<pre>local workspace
+→ package/sync files
+→ remote container workdir
+→ remote dev server
+→ preview URL/proxy
+→ logs stream back</pre>
+
+<p>Remote sandbox is bigger win because user no longer needs local Docker, and runtime can be centrally controlled. But it adds backend infra.</p>
+
+<h2>Retrieval check</h2>
+<p>Question: why copy workspace to temp dir before Docker run?</p>
+<button onclick="check(false)">To make React render faster</button>
+<button onclick="check(true)">To avoid writing real files</button>
+<button onclick="check(false)">To remove need for ports</button>
+<button onclick="check(false)">To skip Docker install</button>
+<p id="feedback"></p>
+
+<h2>Next tiny build step</h2>
+<p>Change your Docker start script to create a temp preview dir with <code>rsync</code>, mount that dir, then confirm edits inside container do not touch original files.</p>
+
+<p>Previous: <a href="0005-docker-sandbox-mental-model.html">Docker Sandbox Mental Model</a></p>
+<p>Reference: <a href="../reference/electron-preview-architecture.html">Electron Preview Architecture</a></p>
+<p class="small">Ask agent follow-up: “patch start-docker.sh to use an isolated temp workdir”.</p>
+
+<script>
+function check(ok){
+  const el = document.getElementById('feedback');
+  if(ok){ el.textContent = 'Correct: temp workdir protects original workspace from container writes.'; el.className = 'ok'; }
+  else { el.textContent = 'Not quite: temp copy is about write isolation from real workspace.'; el.className = 'bad'; }
+}
+</script>
+</body>
+</html>
