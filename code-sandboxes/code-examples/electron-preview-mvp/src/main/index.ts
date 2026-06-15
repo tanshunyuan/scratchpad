@@ -90,9 +90,14 @@ const stopPreviewServer = async () => {
 
   sendPreviewStatus('stopping')
 
-  await fetch(`${SERVER_URL}/sandboxes/${sandboxId}/stop`, {
+  const response = await fetch(`${SERVER_URL}/sandboxes/${sandboxId}/stop`, {
     method: 'POST'
   })
+
+  if (!response.ok) {
+    sendPreviewStatus('error')
+    throw new Error('Something went wrong stopping the server')
+  }
 
   sandboxId = ''
   previewUrl = ''

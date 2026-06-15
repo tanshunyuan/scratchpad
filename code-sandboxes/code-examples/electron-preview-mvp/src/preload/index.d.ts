@@ -12,7 +12,10 @@ declare global {
       }>
       stopPreview: () => Promise<void>
       getPreviewUrl: () => Promise<string>
-      restartPreview: () => void
+      restartPreview: () => Promise<{
+        previewUrl: string
+        sandboxId: string
+      }>
     }
   }
 }

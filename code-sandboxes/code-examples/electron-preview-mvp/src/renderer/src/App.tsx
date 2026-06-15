@@ -59,13 +59,15 @@ function App(): React.JSX.Element {
         <button
           onClick={async () => {
             await window.api.stopPreview()
+            setPreviewUrl('')
           }}
         >
           end
         </button>
         <button
           onClick={async () => {
-            await window.api.restartPreview()
+            const result = await window.api.restartPreview()
+            setPreviewUrl(result.previewUrl)
           }}
         >
           restart
