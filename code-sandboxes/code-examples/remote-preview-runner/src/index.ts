@@ -126,17 +126,49 @@ app.post("/sandboxes/:id/stop", async (req: Request, res: Response) => {
   return res.json({ ok: true });
 });
 
+const sendSseEvent = (res: Response, event: string, data: unknown) => {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+};
+
 app.get("/sandboxes/:id/logs", async (req: Request, res: Response) => {
   const sandbox = sandboxes.get(req.params.id as string);
-
   if (!sandbox) {
     return res.status(404).json({ error: "Sandbox not found" });
   }
 
-  return res.json({
-    status: sandbox.status,
-    logs: sandbox.logs,
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  let lastLogIdx = 0;
+  let lastStatus = sandbox.status;
+
+  sendSseEvent(res, "status", { status: sandbox.status });
+
+  const sendUpdates = () => {
+    if (sandbox.status !== lastStatus) {
+      lastStatus = sandbox.status;
+      sendSseEvent(res, "status", { status: sandbox.status });
+    }
+
+    const newLogs = sandbox.logs.slice(lastLogIdx);
+    lastLogIdx = sandbox.logs.length;
+
+    for (const log of newLogs) {
+      sendSseEvent(res, "log", log);
+    }
+  };
+
+  sendUpdates();
+
+  const interval = setInterval(sendUpdates, 500);
+
+  req.on("close", () => {
+    clearInterval(interval);
   });
+
 });
 
 // Start server

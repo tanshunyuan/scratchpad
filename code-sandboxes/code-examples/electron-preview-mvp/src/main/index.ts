@@ -57,6 +57,7 @@ const SERVER_URL = 'http://localhost:8086'
 
 let previewUrl = ''
 let sandboxId = ''
+let logStreamAbortController: AbortController | null = null
 
 const startPreviewServer = async () => {
   sendPreviewStatus('starting')
@@ -79,6 +80,11 @@ const startPreviewServer = async () => {
   sandboxId = result.sandboxId
   sendPreviewStatus('running')
 
+  startLogStream().catch((error) => {
+    if (error instanceof Error && error.name === 'AbortError') return
+    console.error(error)
+  })
+
   return result
 }
 
@@ -89,6 +95,7 @@ const stopPreviewServer = async () => {
   }
 
   sendPreviewStatus('stopping')
+  stopLogStream()
 
   const response = await fetch(`${SERVER_URL}/sandboxes/${sandboxId}/stop`, {
     method: 'POST'
@@ -102,6 +109,64 @@ const stopPreviewServer = async () => {
   sandboxId = ''
   previewUrl = ''
   sendPreviewStatus('stopped')
+}
+
+const stopLogStream = () => {
+  logStreamAbortController?.abort()
+  logStreamAbortController = null
+}
+
+const startLogStream = async () => {
+  if (!sandboxId) return
+
+  stopLogStream()
+  logStreamAbortController = new AbortController()
+
+  const response = await fetch(`${SERVER_URL}/sandboxes/${sandboxId}/logs`, {
+    signal: logStreamAbortController.signal
+  })
+
+  if (!response.ok || !response.body) {
+    throw new Error('cannot stream logs')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+
+    const rawEvents = buffer.split('\n\n')
+    buffer = rawEvents.pop() ?? ''
+
+    for (const rawEvent of rawEvents) {
+      handleSseEvent(rawEvent)
+    }
+  }
+}
+
+const handleSseEvent = (rawEvent: string) => {
+  const lines = rawEvent.split('\n')
+  const eventLine = lines.find((line) => line.startsWith('event: '))
+  const dataLine = lines.find((line) => line.startsWith('data: '))
+
+  if (!eventLine || !dataLine) return
+
+  const event = eventLine.replace('event: ', '')
+  const data = JSON.parse(dataLine.replace('data: ', ''))
+
+  if (event === 'status') {
+    sendPreviewStatus(data.status)
+    return
+  }
+
+  if (event === 'log') {
+    mainWindow?.webContents.send('preview-log', data)
+  }
 }
 
 const restartPreviewServer = async () => {
