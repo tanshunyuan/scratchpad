@@ -70,7 +70,8 @@ const startPreviewServer = async () => {
   devServerProcess = spawn('pnpm', ['dev', '--port', String(previewPort)], {
     cwd: join(process.cwd(), '../sample-preview-app'),
     env: process.env,
-    shell: true
+    // don't need shell features, so we skip it
+    // shell: true
   })
 
   devServerProcess.stdout.on('data', (data) => {

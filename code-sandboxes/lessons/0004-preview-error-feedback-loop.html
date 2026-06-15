@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 0004 — Preview Error Feedback Loop</title>
+<style>
+  :root{--ink:#16202a;--muted:#5d6975;--line:#d8d6ce;--paper:#fffdf8;--accent:#2454a6;--ok:#177245;--bad:#9d2b2b}
+  body{font:17px/1.6 system-ui,-apple-system,Segoe UI,sans-serif;max-width:860px;margin:44px auto;padding:0 24px;color:var(--ink);background:var(--paper)}
+  h1{font-size:34px;line-height:1.1;margin:0 0 8px} h2{margin-top:34px;border-top:1px solid var(--line);padding-top:18px}
+  a{color:var(--accent)} code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace} pre{background:#f1efe8;padding:16px;border-radius:12px;overflow:auto}
+  .note{border-left:4px solid var(--accent);padding:8px 14px;background:#f5f7fb}.small{color:var(--muted);font-size:14px}
+  button{display:block;margin:8px 0;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:white;cursor:pointer;text-align:left;min-width:290px}
+  button:hover{border-color:var(--accent)} #feedback{font-weight:700;margin-top:10px}.ok{color:var(--ok)}.bad{color:var(--bad)}
+</style>
+</head>
+<body>
+<h1>Preview error feedback loop</h1>
+<p class="small">Mission: when agent edits templated workspace files, preview should show outcome and expose errors clearly.</p>
+
+<section class="note">
+  <strong>Tangible win:</strong> after this lesson, you should separate “server died” from “app has compile/runtime error”.
+</section>
+
+<h2>Where you are now</h2>
+<p>Your runner lifecycle is good enough:</p>
+<pre>start → spawn dev server → wait for URL → running
+stop → SIGTERM → wait exit → stopped
+restart → stop then start</pre>
+
+<p>Next important loop is feedback after file changes. In target app, the agent usually changes files, not the user typing manually.</p>
+
+<h2>One idea</h2>
+<p>A preview can fail while the dev server is still healthy.</p>
+
+<pre>agent edits file
+→ Vite watches filesystem
+→ rebuild/HMR runs
+→ app either updates or errors
+→ iframe shows app/overlay
+→ logs show what happened</pre>
+
+<p>Vite watches files and uses HMR for updates. Source: <a href="https://vite.dev/guide/features.html#hot-module-replacement">Vite HMR docs</a>.</p>
+
+<h2>Do not collapse all failures into “server down”</h2>
+<p>These are different:</p>
+
+<pre>server not running       → no process / port unavailable
+server starting          → process exists, URL not ready yet
+server running           → URL responds
+app compile error        → server alive, app failed to build
+app runtime error        → server alive, browser JS crashed
+iframe load error        → browser could not load URL</pre>
+
+<p>Your current status mostly tracks server lifecycle. That is fine. App errors can be shown through logs and iframe overlay without changing server status to <code>stopped</code>.</p>
+
+<h2>Why logs matter</h2>
+<p>Logs are not only debug noise. They are the feedback channel for agent work.</p>
+
+<pre>[stdout] Vite ready on http://localhost:5174
+[stderr] Failed to resolve import "./Missing"
+[stderr] SyntaxError: Unexpected token</pre>
+
+<p>When agent makes a bad edit, logs tell what to fix. The iframe may also show Vite error overlay.</p>
+
+<h2>Good mental model</h2>
+<pre>runner health: is dev server alive?
+app health: did current code build/run?
+preview surface: what does iframe show?</pre>
+
+<p>Keep these separate. One status field can be simple for now, but your brain should track three layers.</p>
+
+<h2>Small test</h2>
+<p>Use your current sample app.</p>
+
+<pre>1. Start preview.
+2. Edit sample-preview-app/src/App.tsx.
+3. Add a syntax error.
+4. Watch iframe and logs.
+5. Fix syntax error.
+6. Confirm preview recovers without restart.</pre>
+
+<p>If preview recovers after fixing file, your feedback loop works.</p>
+
+<h2>What not to build yet</h2>
+<ul>
+  <li>No custom error parser.</li>
+  <li>No diagnostics panel.</li>
+  <li>No project command detection.</li>
+  <li>No Docker.</li>
+</ul>
+
+<p>For MVP, raw logs + iframe overlay are enough.</p>
+
+<h2>Retrieval check</h2>
+<p>Question: Vite shows compile error after agent edit, but port still responds. What happened?</p>
+<button onclick="check(false)">Preview server definitely died</button>
+<button onclick="check(true)">App build failed but server lives</button>
+<button onclick="check(false)">Iframe must be replaced by WebContentsView</button>
+<button onclick="check(false)">Project picker chose wrong folder</button>
+<p id="feedback"></p>
+
+<h2>Next tiny build step</h2>
+<p>Add one manual test habit, not new architecture:</p>
+
+<pre>break app intentionally
+→ observe iframe/logs
+→ fix app
+→ confirm preview recovers</pre>
+
+<p>If this works, current preview infra is enough to support agent edits in a templated workspace.</p>
+
+<p>Previous: <a href="0003-process-tree-and-port-ownership.html">Process Tree and Port Ownership</a></p>
+<p>Reference: <a href="../reference/electron-preview-architecture.html">Electron Preview Architecture</a></p>
+<p class="small">Ask agent follow-up: “help me test compile-error recovery in the preview”.</p>
+
+<script>
+function check(ok){
+  const el = document.getElementById('feedback');
+  if(ok){ el.textContent = 'Correct: server can be healthy while app code fails.'; el.className = 'ok'; }
+  else { el.textContent = 'Not quite: distinguish server lifecycle from app build/runtime health.'; el.className = 'bad'; }
+}
+</script>
+</body>
+</html>
