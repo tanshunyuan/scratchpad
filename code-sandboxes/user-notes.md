@@ -11,3 +11,14 @@
 → wait URL
 → running
 - we need to be clear on how processes for a few states like: start, stop, restart. and figure out what are them for other programs in the future
+- suprisingly, we can do the followign with Map.set. the referenced object will be mutated
+```
+const map = new Map();
+const obj = {
+  "horlicks": "good"
+}
+map.set("bar", obj);
+
+obj.horlicks = "bad"
+console.log(map.get("bar")); // outputs bad
+```

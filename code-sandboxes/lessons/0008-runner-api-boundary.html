@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 0008 — Runner API Boundary</title>
+<style>
+  :root{--ink:#16202a;--muted:#5d6975;--line:#d8d6ce;--paper:#fffdf8;--accent:#2454a6;--ok:#177245;--bad:#9d2b2b}
+  body{font:17px/1.6 system-ui,-apple-system,Segoe UI,sans-serif;max-width:880px;margin:44px auto;padding:0 24px;color:var(--ink);background:var(--paper)}
+  h1{font-size:34px;line-height:1.1;margin:0 0 8px} h2{margin-top:34px;border-top:1px solid var(--line);padding-top:18px}
+  a{color:var(--accent)} code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace} pre{background:#f1efe8;padding:16px;border-radius:12px;overflow:auto}
+  .note{border-left:4px solid var(--accent);padding:8px 14px;background:#f5f7fb}.small{color:var(--muted);font-size:14px}
+  button{display:block;margin:8px 0;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:white;cursor:pointer;text-align:left;min-width:320px}
+  button:hover{border-color:var(--accent)} #feedback{font-weight:700;margin-top:10px}.ok{color:var(--ok)}.bad{color:var(--bad)}
+</style>
+</head>
+<body>
+<h1>Runner API boundary</h1>
+<p class="small">Mission: make Electron talk to a runner API, so Docker/runtime can move remote later.</p>
+
+<section class="note">
+  <strong>Tangible win:</strong> after this lesson, you should know what logic belongs in Electron and what belongs in the runner service.
+</section>
+
+<h2>Where you are now</h2>
+<p>You created a runner skeleton at <code>code-examples/remote-preview-runner/</code> with these intended routes:</p>
+
+<pre>POST /sandboxes/start
+POST /sandboxes/:id/stop
+GET  /sandboxes/:id/logs</pre>
+
+<p>This is right direction. The runner API is the seam between local UI and sandbox runtime.</p>
+
+<h2>One idea</h2>
+<p>Electron should not know Docker details.</p>
+
+<pre>Before:
+Electron → spawn docker run → container → preview URL
+
+After:
+Electron → runner API → docker/container → preview URL</pre>
+
+<p>The runner owns sandbox lifecycle. Electron owns UI, iframe, buttons, and showing logs/status.</p>
+
+<h2>Why this boundary matters</h2>
+<p>Today runner can be local Express server. Later it can be remote service. Electron code should barely change.</p>
+
+<pre>local runner URL:  http://localhost:8086
+remote runner URL: https://runner.example.com</pre>
+
+<p>Same API shape. Different host.</p>
+
+<h2>Responsibility split</h2>
+<pre>Electron app
+- start/stop/restart buttons
+- iframe loads previewUrl
+- displays logs/status
+- sends workspace snapshot or workspace ID
+
+Runner service
+- receives start/stop requests
+- creates sandbox ID
+- starts container/dev server
+- knows ports/container IDs
+- streams stdout/stderr/status
+- cleans up resources</pre>
+
+<h2>Minimal API contract</h2>
+<pre>POST /sandboxes/start
+request:
+{
+  "workspacePath": "/path/to/workspace"
+}
+
+response:
+{
+  "sandboxId": "sandbox_123",
+  "previewUrl": "http://localhost:5174"
+}</pre>
+
+<pre>GET /sandboxes/sandbox_123/logs
+response: text/event-stream
+
+event: status
+data: {"status":"starting"}
+
+event: log
+data: {"type":"stdout","text":"Vite ready"}</pre>
+
+<pre>POST /sandboxes/sandbox_123/stop
+response:
+{
+  "ok": true
+}</pre>
+
+<p>Server-Sent Events are simple one-way streaming from runner to Electron. Source: <a href="https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events">MDN Server-Sent Events</a>. Express route handling source: <a href="https://expressjs.com/en/guide/routing.html">Express routing docs</a>.</p>
+
+<h2>State moves into runner</h2>
+<p>Electron currently has <code>devServerProcess</code>. With runner boundary, runner owns this state.</p>
+
+<pre>const sandboxes = new Map()
+
+sandboxes.set(sandboxId, {
+  process,
+  previewUrl,
+  status
+})</pre>
+
+<p>Electron stores only:</p>
+
+<pre>{ sandboxId, previewUrl, status, logs }</pre>
+
+<h2>Preview URL stays boring</h2>
+<p>This is the win from iframe design.</p>
+
+<pre>Electron receives previewUrl
+→ iframe.src = previewUrl</pre>
+
+<p>Local Docker, local runner, remote runner: all become URL providers.</p>
+
+<h2>Retrieval check</h2>
+<p>Question: after adding runner API, who should know Docker command details?</p>
+<button onclick="check(false)">Electron renderer component</button>
+<button onclick="check(false)">Iframe preview surface</button>
+<button onclick="check(true)">Runner service process</button>
+<button onclick="check(false)">React preload types</button>
+<p id="feedback"></p>
+
+<h2>Next tiny build step</h2>
+<p>In <code>remote-preview-runner</code>, implement only <code>POST /sandboxes/start</code> first.</p>
+
+<pre>POST /sandboxes/start
+→ spawn Docker using existing command
+→ wait for preview URL
+→ return { sandboxId, previewUrl }</pre>
+
+<p>Do not implement auth, upload, proxy, or multi-user cleanup yet. Keep runner local. Goal is boundary, not cloud.</p>
+
+<p>Previous: <a href="0007-remote-sandbox-experience.html">Remote Sandbox Experience</a></p>
+<p>Reference: <a href="../reference/electron-preview-architecture.html">Electron Preview Architecture</a></p>
+<p class="small">Ask agent follow-up: “help me implement POST /sandboxes/start in the runner”.</p>
+
+<script>
+function check(ok){
+  const el = document.getElementById('feedback');
+  if(ok){ el.textContent = 'Correct: runner owns Docker/runtime details.'; el.className = 'ok'; }
+  else { el.textContent = 'Not quite: Electron should call API, not manage container internals.'; el.className = 'bad'; }
+}
+</script>
+</body>
+</html>

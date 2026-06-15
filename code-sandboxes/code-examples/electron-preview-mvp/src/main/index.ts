@@ -67,33 +67,33 @@ const startPreviewServer = async () => {
 
   sendPreviewStatus('starting')
 
-  // devServerProcess = spawn('pnpm', ['dev', '--port', String(previewPort)], {
-  //   cwd: join(process.cwd(), '../sample-preview-app'),
-  //   env: process.env,
-  //   // don't need shell features, so we skip it
-  //   // shell: true
-  // })
+  devServerProcess = spawn('pnpm', ['dev', '--port', String(previewPort)], {
+    cwd: join(process.cwd(), '../sample-preview-app'),
+    env: process.env,
+    // don't need shell features, so we skip it
+    // shell: true
+  })
 
-  const projectDir = join(process.cwd(), '../sample-preview-app')
-  const dockerImage = 'node:24'
-  const nodeModulesVolume = 'sample-preview-node-modules'
+  // const projectDir = join(process.cwd(), '../sample-preview-app')
+  // const dockerImage = 'node:24'
+  // const nodeModulesVolume = 'sample-preview-node-modules'
 
-  devServerProcess = spawn('docker', [
-    'run',
-    '--rm',
-    '-v',
-    `${projectDir}:/app`,
-    '-v',
-    `${nodeModulesVolume}:/app/node_modules`,
-    '-w',
-    '/app',
-    '-p',
-    `${previewPort}:${previewPort}`,
-    dockerImage,
-    'sh',
-    '-lc',
-    `corepack enable && pnpm install && pnpm dev --host 0.0.0.0 --port ${previewPort}`
-  ])
+  // devServerProcess = spawn('docker', [
+  //   'run',
+  //   '--rm',
+  //   '-v',
+  //   `${projectDir}:/app`,
+  //   '-v',
+  //   `${nodeModulesVolume}:/app/node_modules`,
+  //   '-w',
+  //   '/app',
+  //   '-p',
+  //   `${previewPort}:${previewPort}`,
+  //   dockerImage,
+  //   'sh',
+  //   '-lc',
+  //   `corepack enable && pnpm install && pnpm dev --host 0.0.0.0 --port ${previewPort}`
+  // ])
 
   devServerProcess.stdout.on('data', (data) => {
     console.log(`[preview] ${data}`)
