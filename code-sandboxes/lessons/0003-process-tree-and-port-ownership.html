@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 0003 — Process Tree and Port Ownership</title>
+<style>
+  :root{--ink:#16202a;--muted:#5d6975;--line:#d8d6ce;--paper:#fffdf8;--accent:#2454a6;--ok:#177245;--bad:#9d2b2b}
+  body{font:17px/1.6 system-ui,-apple-system,Segoe UI,sans-serif;max-width:860px;margin:44px auto;padding:0 24px;color:var(--ink);background:var(--paper)}
+  h1{font-size:34px;line-height:1.1;margin:0 0 8px} h2{margin-top:34px;border-top:1px solid var(--line);padding-top:18px}
+  a{color:var(--accent)} code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace} pre{background:#f1efe8;padding:16px;border-radius:12px;overflow:auto}
+  .note{border-left:4px solid var(--accent);padding:8px 14px;background:#f5f7fb}.small{color:var(--muted);font-size:14px}
+  button{display:block;margin:8px 0;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:white;cursor:pointer;text-align:left;min-width:280px}
+  button:hover{border-color:var(--accent)} #feedback{font-weight:700;margin-top:10px}.ok{color:var(--ok)}.bad{color:var(--bad)}
+</style>
+</head>
+<body>
+<h1>Process tree and port ownership</h1>
+<p class="small">Mission: make preview stop/restart reliable when a dev server has child processes.</p>
+
+<section class="note">
+  <strong>Tangible win:</strong> after this lesson, you should know why “process exited” can still leave a port busy.
+</section>
+
+<h2>Where you are now</h2>
+<p>You have a working lifecycle:</p>
+<pre>start → spawn → wait for URL → running
+stop → SIGTERM → wait for exit → stopped
+restart → stop complete → start again</pre>
+
+<p>This is correct for one process. But dev servers are often not one process.</p>
+
+<h2>One idea</h2>
+<p>The process you spawn is not always the process that owns the port.</p>
+
+<pre>Electron main
+└─ shell              ← created by shell: true
+   └─ pnpm dev        ← package manager wrapper
+      └─ vite         ← often the process listening on :5174</pre>
+
+<p>Your variable <code>devServerProcess</code> may point at the shell or package-manager wrapper. The actual server process may be deeper in the tree.</p>
+
+<h2>Why this matters</h2>
+<p>If you kill only the parent process, a child can sometimes survive. Then restart fails because old Vite still owns the port.</p>
+
+<pre>restart
+→ kill parent
+→ parent exits
+→ child vite survives
+→ new vite starts
+→ port 5174 already in use</pre>
+
+<p>This is why “I waited for <code>exit</code>” can still be insufficient in process-tree cases.</p>
+
+<h2>Port owner beats process handle</h2>
+<p>Preview readiness asks: “Does URL respond?”</p>
+<p>Preview cleanup asks: “Is anything still listening on port?”</p>
+
+<pre>lsof -i :5174</pre>
+
+<p>On macOS/Linux, this shows which process owns the port. If restart is weird, this is first debug command.</p>
+
+<h2>Three simple strategies</h2>
+
+<h3>1. Avoid shell when possible</h3>
+<p><code>shell: true</code> adds a wrapper process. If you do not need shell features, prefer direct spawn.</p>
+
+<pre>spawn('pnpm', ['dev', '--port', String(previewPort)], {
+  cwd: projectDir,
+  env: process.env
+})</pre>
+
+<p>Fewer wrappers means easier lifecycle. Source: <a href="https://nodejs.org/api/child_process.html#child_processspawncommand-args-options">Node child_process spawn docs</a>.</p>
+
+<h3>2. Treat port-busy as cleanup signal</h3>
+<p>If start fails because port is busy, do not guess. Inspect port owner.</p>
+
+<pre>lsof -i :5174
+ps -p &lt;PID&gt; -o pid,ppid,command</pre>
+
+<h3>3. Use tree-kill only when needed</h3>
+<p>If child processes survive often, add process-tree cleanup. Keep it as later infra, not first MVP.</p>
+
+<pre>Electron → stop preview → terminate process tree → verify port free → start again</pre>
+
+<h2>What not to overbuild yet</h2>
+<ul>
+  <li>No Docker yet.</li>
+  <li>No project picker.</li>
+  <li>No env panel.</li>
+  <li>No Electron-specific preview surface.</li>
+</ul>
+
+<h2>Retrieval check</h2>
+<p>Question: restart fails with “port already in use” after you waited for <code>exit</code>. Most likely cause?</p>
+<button onclick="check(false)">Iframe forgot to refresh itself</button>
+<button onclick="check(true)">Child server still owns port</button>
+<button onclick="check(false)">stdout was not fully printed</button>
+<button onclick="check(false)">React state update was async</button>
+<p id="feedback"></p>
+
+<h2>Next tiny build step</h2>
+<p>Do not add tree-kill yet. First test if your current setup leaves orphans.</p>
+
+<pre>1. Start preview.
+2. Run: lsof -i :5174
+3. Stop preview.
+4. Run: lsof -i :5174 again.
+5. If no output, cleanup is good enough for now.
+6. If process remains, next fix is process-tree cleanup.</pre>
+
+<p>Previous: <a href="0002-preview-runner-lifecycle.html">Preview Runner Lifecycle</a></p>
+<p>Reference: <a href="../reference/electron-preview-architecture.html">Electron Preview Architecture</a></p>
+<p class="small">Ask agent follow-up: “help me inspect whether stop leaves an orphan process”.</p>
+
+<script>
+function check(ok){
+  const el = document.getElementById('feedback');
+  if(ok){ el.textContent = 'Correct: parent exit does not always prove child server died.'; el.className = 'ok'; }
+  else { el.textContent = 'Not quite: port-busy usually means a process still listens on that port.'; el.className = 'bad'; }
+}
+</script>
+</body>
+</html>

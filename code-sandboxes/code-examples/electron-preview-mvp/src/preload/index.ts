@@ -29,6 +29,9 @@ const api = {
   },
   getPreviewUrl: () => {
     return ipcRenderer.invoke('preview-get-url')
+  },
+  restartPreview: () => {
+    return ipcRenderer.invoke('preview-restart')
   }
 }
 

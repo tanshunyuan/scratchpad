@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 0002 — Preview Runner Lifecycle</title>
+<style>
+  :root{--ink:#16202a;--muted:#5d6975;--line:#d8d6ce;--paper:#fffdf8;--accent:#2454a6;--ok:#177245;--bad:#9d2b2b}
+  body{font:17px/1.6 system-ui,-apple-system,Segoe UI,sans-serif;max-width:860px;margin:44px auto;padding:0 24px;color:var(--ink);background:var(--paper)}
+  h1{font-size:34px;line-height:1.1;margin:0 0 8px} h2{margin-top:34px;border-top:1px solid var(--line);padding-top:18px}
+  a{color:var(--accent)} code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace} pre{background:#f1efe8;padding:16px;border-radius:12px;overflow:auto}
+  .note{border-left:4px solid var(--accent);padding:8px 14px;background:#f5f7fb}.small{color:var(--muted);font-size:14px}
+  button{display:block;margin:8px 0;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:white;cursor:pointer;text-align:left;min-width:260px}
+  button:hover{border-color:var(--accent)} #feedback{font-weight:700;margin-top:10px}.ok{color:var(--ok)}.bad{color:var(--bad)}
+</style>
+</head>
+<body>
+<h1>Preview runner lifecycle</h1>
+<p class="small">Mission: make current preview runner easier to reason about. No env vars. No project picker. Keep iframe.</p>
+
+<section class="note">
+  <strong>Tangible win:</strong> after this lesson, you should know why logs are not readiness, and what states preview runner needs.
+</section>
+
+<h2>Where you are now</h2>
+<p>Your current MVP already has the core runtime loop.</p>
+<pre>renderer button
+→ window.api.startPreview()
+→ ipcMain.handle('preview-start')
+→ spawn('pnpm', ['dev', '--port', '5174'])
+→ stdout/stderr logs stream to renderer
+→ iframe loads http://localhost:5174
+→ stop sends SIGTERM</pre>
+
+<p>This means the next lesson is not “build runner from scratch”. It is “make runner lifecycle correct”.</p>
+
+<h2>One idea</h2>
+<p><strong>Process started</strong> and <strong>preview ready</strong> are different events.</p>
+
+<pre>spawn event      = OS created process
+stdout data      = process printed text
+port responds    = browser can load preview
+exit event       = process is dead</pre>
+
+<p>A Vite server can print logs before it is fully ready. Or it can print an error and never become reachable. So <code>stdout</code> should create log lines, not prove preview readiness.</p>
+
+<h2>Useful states</h2>
+<pre>stopped  → no child process
+starting → child process exists, port not ready yet
+running  → port responds
+stopping → SIGTERM sent, waiting for exit
+error    → process failed or exited during startup</pre>
+
+<p>These states are enough for MVP. Do not overbuild state machine abstractions yet.</p>
+
+<h2>Better start flow</h2>
+<pre>1. If process already exists, do nothing.
+2. Set status = starting.
+3. Spawn dev server.
+4. Stream stdout/stderr to logs.
+5. Poll http://localhost:5174 until it responds.
+6. Set status = running.
+7. Let iframe load/reload preview URL.</pre>
+
+<h2>Better stop flow</h2>
+<pre>1. If no process exists, status = stopped.
+2. Set status = stopping.
+3. Send SIGTERM.
+4. Wait for exit event.
+5. Set status = stopped.
+6. Clear process reference.</pre>
+
+<p><code>SIGTERM</code> asks process to shut down. <code>exit</code> confirms it actually shut down.</p>
+
+<h2>Restart is stop + start</h2>
+<p>Restart should not be magical.</p>
+<pre>restart
+→ stop current process
+→ wait for exit
+→ start new process
+→ wait for port ready
+→ reload iframe</pre>
+
+<p>This matters when dependencies changed, dev server wedged, or preview needs clean reset.</p>
+
+<h2>Iframe constraint</h2>
+<p>Keep iframe. It is portable if future app is not Electron-only.</p>
+<pre>Electron today: iframe loads local URL
+Future non-Electron app: iframe still loads preview URL</pre>
+
+<p>Electron main is current runner host, but preview surface does not need to become Electron-specific.</p>
+
+<h2>Retrieval check</h2>
+<p>Question: what proves preview is ready for iframe?</p>
+<button onclick="check(false)">Child process emitted spawn event</button>
+<button onclick="check(false)">Dev server printed any stdout</button>
+<button onclick="check(true)">Preview URL responds on port</button>
+<button onclick="check(false)">Renderer has iframe element</button>
+<p id="feedback"></p>
+
+<h2>Next tiny build step</h2>
+<p>Add a small <code>waitForUrl()</code> helper in Electron main. Use it before setting status to <code>running</code>.</p>
+
+<pre>async function waitForUrl(url: string, timeoutMs = 15000) {
+  const startedAt = Date.now()
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const response = await fetch(url)
+      if (response.ok) return
+    } catch {
+      // server not ready yet
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+
+  throw new Error(`Timed out waiting for ${url}`)
+}</pre>
+
+<p>After this, status means more:</p>
+<pre>starting = process launched, waiting for app
+running  = iframe can load app</pre>
+
+<p class="small">Ask agent follow-up: “patch the runner readiness check, keep it simple”.</p>
+
+<script>
+function check(ok){
+  const el = document.getElementById('feedback');
+  if(ok){ el.textContent = 'Correct: port response proves preview can load.'; el.className = 'ok'; }
+  else { el.textContent = 'Not quite: logs/process events are useful, but port response proves readiness.'; el.className = 'bad'; }
+}
+</script>
+</body>
+</html>

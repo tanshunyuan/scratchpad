@@ -55,13 +55,17 @@ const sendPreviewStatus = (status: string) => {
 }
 
 let devServerProcess: ChildProcessWithoutNullStreams | null = null
-const previewPort = 5174
 
-const startPreviewServer = () => {
+const previewPort = 5174
+const previewUrl = `http://localhost:${previewPort}`
+
+const startPreviewServer = async () => {
   if (devServerProcess) {
     console.log('dev server running')
     return
   }
+
+  sendPreviewStatus('starting')
 
   devServerProcess = spawn('pnpm', ['dev', '--port', String(previewPort)], {
     cwd: join(process.cwd(), '../sample-preview-app'),
@@ -69,13 +73,8 @@ const startPreviewServer = () => {
     shell: true
   })
 
-  devServerProcess.on('spawn', () => {
-    sendPreviewStatus('starting')
-  })
-
   devServerProcess.stdout.on('data', (data) => {
     console.log(`[preview] ${data}`)
-    sendPreviewStatus('running')
     mainWindow?.webContents.send('preview-log', {
       type: 'stdout',
       text: data.toString()
@@ -102,15 +101,60 @@ const startPreviewServer = () => {
     sendPreviewStatus('stopped')
     devServerProcess = null
   })
+
+  const previewProcessSnapshot = devServerProcess
+
+  try {
+    await waitForUrl(previewUrl)
+    if (previewProcessSnapshot !== devServerProcess) return
+    sendPreviewStatus('running')
+  } catch (error) {
+    if (previewProcessSnapshot !== devServerProcess) return
+    sendPreviewStatus('error')
+    mainWindow?.webContents.send('preview-log', {
+      type: 'error',
+      text: error instanceof Error ? error.message : String(error)
+    })
+  }
 }
 
-const stopPreviewServer = () => {
+const stopPreviewServer = async () => {
   if (!devServerProcess) {
     console.log('nothing to stop')
     return
   }
-  const result = devServerProcess.kill('SIGTERM')
-  console.log('stopPreviewServer.result ==> ', result)
+  sendPreviewStatus('stopping')
+  const processToStopSnapshot = devServerProcess
+
+  await new Promise<void>((resolve) => {
+    // this is just to register
+    processToStopSnapshot.once('exit', () => resolve())
+
+    const signalSent = processToStopSnapshot.kill('SIGTERM')
+    if (!signalSent) resolve()
+  })
+}
+
+const restartPreviewServer = async () => {
+  await stopPreviewServer()
+  await startPreviewServer()
+}
+
+const waitForUrl = async (url: string, timeoutMs = 15000) => {
+  const startedAt = Date.now()
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const response = await fetch(url)
+      if (response.ok) return
+    } catch (err) {
+      // Server not ready yet.
+      // console.log(err)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+
+  throw new Error(`Timed out waiting for ${url}`)
 }
 
 // This method will be called when Electron has finished
@@ -126,9 +170,6 @@ app.whenReady().then(() => {
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
-
-  // IPC test
-  ipcMain.on('ping', () => console.log('pong'))
 
   createWindow()
 
@@ -155,18 +196,21 @@ app.on('window-all-closed', () => {
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and require them here.
 
-ipcMain.handle('preview-start', () => {
-  startPreviewServer()
+ipcMain.handle('preview-start', async () => {
+  await startPreviewServer()
   return { ok: true }
 })
 
-ipcMain.handle('preview-stop', () => {
-  stopPreviewServer()
+ipcMain.handle('preview-stop', async () => {
+  await stopPreviewServer()
   return { ok: true }
 })
-
-const previewUrl = `http://localhost:${previewPort}`
 
 ipcMain.handle('preview-get-url', () => {
   return previewUrl
+})
+
+ipcMain.handle('preview-restart', async () => {
+  await restartPreviewServer()
+  return { ok: true }
 })

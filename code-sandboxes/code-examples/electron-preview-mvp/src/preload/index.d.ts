@@ -6,9 +6,10 @@ declare global {
     api: {
       onPreviewLogs: (callback: Function) => () => void
       onPreviewStatus: (callback: Function) => () => void
-      startPreview: () => void
-      stopPreview: () => void
+      startPreview: () => Promise<void>
+      stopPreview: () => Promise<void>
       getPreviewUrl: () => Promise<string>
+      restartPreview: () => void
     }
   }
 }

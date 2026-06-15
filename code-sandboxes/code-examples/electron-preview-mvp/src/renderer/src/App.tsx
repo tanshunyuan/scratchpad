@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 function App(): React.JSX.Element {
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const [logs, setLogs] = useState<Array<{ type: string; text: string }>>([])
-  const [status, setStatus] = useState<string>('')
+  const [status, setStatus] = useState<string>('stopped')
   const [previewUrl, setPreviewUrl] = useState('')
 
   useEffect(() => {
@@ -49,18 +49,25 @@ function App(): React.JSX.Element {
       </div>
       <div style={{}}>
         <button
-          onClick={() => {
-            window.api.startPreview()
+          onClick={async () => {
+            await window.api.startPreview()
           }}
         >
           start
         </button>
         <button
-          onClick={() => {
-            window.api.stopPreview()
+          onClick={async () => {
+            await window.api.stopPreview()
           }}
         >
           end
+        </button>
+        <button
+          onClick={async () => {
+            await window.api.restartPreview()
+          }}
+        >
+          restart
         </button>
         <button
           onClick={() => {
