@@ -20,14 +20,27 @@
 // // Increment through connection
 // await connection.increment(1);
 
+
 import { createClient } from "rivetkit/client";
 import type { registry } from "./server.js";
 
 const client = createClient<typeof registry>("http://localhost:6420");
-const agent = client.vm.getOrCreate(['my-agent'])
+const agent = client.vm.getOrCreate(["my-agent"]);
 
-agent.connect().on('sessionEvent', (data) => {
-  console.log(data)
-})
+// Subscribe to streaming events
+agent.on("sessionEvent", (data) => {
+  console.log(data.event);
+});
 
-const session = await agent.
+// Create a session and send a prompt
+const session = await agent.createSession("pi", {
+  env: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY! },
+});
+await agent.sendPrompt(
+  session.sessionId,
+  "Write a hello world script to /home/user/hello.js",
+);
+
+// Read the file the agent created
+const content = await agent.readFile("/home/user/hello.js");
+console.log(new TextDecoder().decode(content));
