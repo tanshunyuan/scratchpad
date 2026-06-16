@@ -1,0 +1,28 @@
+{
+  "name": "rivet",
+  "version": "1.0.0",
+  "description": "Minimal realtime chat app built with RivetKit actors",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc && esbuild src/web.ts --bundle --format=esm --platform=browser --outfile=public/app.js",
+    "dev": "pnpm run build && node dist/server.js",
+    "start": "node dist/server.js",
+    "check": "tsc --noEmit"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.29.3",
+  "dependencies": {
+    "@rivet-dev/agent-os-common": "^0.0.260331072558",
+    "@rivet-dev/agent-os-pi": "^0.1.1",
+    "@types/typescript": "^2.0.0",
+    "rivetkit": "^2.3.0",
+    "typescript": "^6.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "esbuild": "^0.28.1"
+  },
+  "type": "module"
+}

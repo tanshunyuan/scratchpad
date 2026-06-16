@@ -1,3 +1,7 @@
+# Meme
+This tutorial ain't it
+
+# Outdated
 **Best Design**
 
 Use **queue + request ID + result store**. Direct server -> Pi HTTP bad if Pi not public.
