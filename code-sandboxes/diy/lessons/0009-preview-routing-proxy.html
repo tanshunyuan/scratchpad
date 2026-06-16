@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 0009 — Preview Routing Proxy</title>
+<style>
+  :root{--ink:#16202a;--muted:#5d6975;--line:#d8d6ce;--paper:#fffdf8;--accent:#2454a6;--ok:#177245;--bad:#9d2b2b}
+  body{font:17px/1.6 system-ui,-apple-system,Segoe UI,sans-serif;max-width:880px;margin:44px auto;padding:0 24px;color:var(--ink);background:var(--paper)}
+  h1{font-size:34px;line-height:1.1;margin:0 0 8px} h2{margin-top:34px;border-top:1px solid var(--line);padding-top:18px}
+  a{color:var(--accent)} code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace} pre{background:#f1efe8;padding:16px;border-radius:12px;overflow:auto}
+  .note{border-left:4px solid var(--accent);padding:8px 14px;background:#f5f7fb}.small{color:var(--muted);font-size:14px}
+  button{display:block;margin:8px 0;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:white;cursor:pointer;text-align:left;min-width:320px}
+  button:hover{border-color:var(--accent)} #feedback{font-weight:700;margin-top:10px}.ok{color:var(--ok)}.bad{color:var(--bad)}
+</style>
+</head>
+<body>
+<h1>Preview routing proxy</h1>
+<p class="small">Mission: make remote sandbox preview reachable by iframe through a routed URL, not container localhost.</p>
+
+<section class="note">
+  <strong>Tangible win:</strong> after this lesson, you should explain why remote preview needs a proxy route.</section>
+
+<h2>Problem</h2>
+<p>Local runner can return:</p>
+<pre>http://localhost:5174</pre>
+
+<p>In remote sandbox, that breaks. In Electron iframe, <code>localhost</code> means the user's machine, not remote container.</p>
+
+<pre>Electron on user laptop
+→ iframe loads http://localhost:5174
+→ tries user laptop port 5174
+→ remote container never reached</pre>
+
+<h2>One idea</h2>
+<p>Remote preview needs a public routed URL.</p>
+
+<pre>Electron iframe
+→ https://preview-abc.yourapp.com
+→ preview proxy
+→ sandbox container :5174</pre>
+
+<p>The proxy is remote version of Docker port publishing.</p>
+
+<pre>Local Docker:
+-p 5174:5174
+
+Remote sandbox:
+preview URL → proxy → container:5174</pre>
+
+<h2>What proxy knows</h2>
+<pre>sandboxId: abc
+preview host/path: /preview/abc
+container target: http://10.0.4.21:5174</pre>
+
+<p>When browser requests preview URL, proxy looks up sandbox target and forwards request.</p>
+
+<h2>Two URL styles</h2>
+<h3>Subdomain style</h3>
+<pre>https://abc.preview.yourapp.com</pre>
+<p>Good isolation story later. Needs wildcard DNS/TLS.</p>
+
+<h3>Path style</h3>
+<pre>https://runner.yourapp.com/preview/abc</pre>
+<p>Easier to prototype. Some dev servers need base-path handling.</p>
+
+<h2>Local fake for learning</h2>
+<p>You can simulate remote proxy locally:</p>
+
+<pre>runner service: http://localhost:8086
+preview route:  http://localhost:8086/preview/:sandboxId
+actual app:     http://localhost:5174</pre>
+
+<p>Electron iframe stops using <code>localhost:5174</code> directly. It uses runner preview route.</p>
+
+<pre>POST /sandboxes/start
+→ starts app on localhost:5174
+→ returns previewUrl: http://localhost:8086/preview/abc</pre>
+
+<p>Then runner proxies:</p>
+
+<pre>GET /preview/abc/*
+→ forward to http://localhost:5174/*</pre>
+
+<h2>Why this matters</h2>
+<ul>
+  <li>Electron only needs a URL.</li>
+  <li>Runner controls which sandbox URL maps to which container.</li>
+  <li>Remote containers can stay private.</li>
+  <li>Auth/access control can live at proxy boundary later.</li>
+</ul>
+
+<h2>What not to build yet</h2>
+<ul>
+  <li>No wildcard DNS.</li>
+  <li>No TLS automation.</li>
+  <li>No multi-tenant auth.</li>
+  <li>No production reverse proxy.</li>
+</ul>
+
+<p>Prototype path-based proxy first.</p>
+
+<h2>Retrieval check</h2>
+<p>Question: why is <code>http://localhost:5174</code> wrong for real remote sandbox?</p>
+<button onclick="check(false)">Because iframes cannot load HTTP</button>
+<button onclick="check(true)">Because localhost means user machine</button>
+<button onclick="check(false)">Because Docker cannot expose ports</button>
+<button onclick="check(false)">Because React requires subdomains</button>
+<p id="feedback"></p>
+
+<h2>Next tiny build step</h2>
+<p>Add a local fake preview route to the runner:</p>
+
+<pre>GET /preview/:sandboxId/*
+→ find sandbox
+→ forward request to sandbox.previewUrl
+</pre>
+
+<p>Then change <code>POST /sandboxes/start</code> to return:</p>
+
+<pre>previewUrl: "http://localhost:8086/preview/&lt;sandboxId&gt;"</pre>
+
+<p>Keep actual Vite app on <code>localhost:5174</code> for now. Goal is routing boundary.</p>
+
+<p>Previous: <a href="0008-runner-api-boundary.html">Runner API Boundary</a></p>
+<p>Reference: <a href="../reference/electron-preview-architecture.html">Electron Preview Architecture</a></p>
+<p class="small">Ask agent follow-up: “guide me building local preview proxy route”.</p>
+
+<script>
+function check(ok){
+  const el = document.getElementById('feedback');
+  if(ok){ el.textContent = 'Correct: browser localhost is not remote container localhost.'; el.className = 'ok'; }
+  else { el.textContent = 'Not quite: remote preview needs routed URL because localhost is relative to browser machine.'; el.className = 'bad'; }
+}
+</script>
+</body>
+</html>
