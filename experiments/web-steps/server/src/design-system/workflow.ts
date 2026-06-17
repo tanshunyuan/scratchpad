@@ -2,18 +2,15 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { Agent } from "@mastra/core/agent";
 import { Mastra } from "@mastra/core/mastra";
 import { createStep, createWorkflow } from "@mastra/core/workflows";
+import { MCPClient } from "@mastra/mcp";
 import { z } from "zod";
 import { env } from "../../env.js";
 import { logDesignSystem } from "./log.js";
-import {
-  createDesignSystemBoardInPenpot,
-  exportPenpotBoardPreview,
-} from "./penpot.js";
+import { exportPenpotBoardPreview } from "./penpot.js";
 import {
   GenerateDesignSystemInputSchema,
   GenerateDesignSystemResultSchema,
   PenpotBoardInfoSchema,
-  PenpotBoardPlanSchema,
   PreviewSchema,
   ProjectContextSchema,
   type GenerateDesignSystemInput,
@@ -33,11 +30,7 @@ const DesignTextEnvelopeSchema = ContextEnvelopeSchema.extend({
   designSystemText: z.string(),
 });
 
-const BoardPlanEnvelopeSchema = DesignTextEnvelopeSchema.extend({
-  penpotBoardPlan: PenpotBoardPlanSchema,
-});
-
-const PenpotEnvelopeSchema = BoardPlanEnvelopeSchema.extend({
+const PenpotEnvelopeSchema = DesignTextEnvelopeSchema.extend({
   penpot: PenpotBoardInfoSchema,
 });
 
@@ -50,7 +43,7 @@ const loadContext = createStep({
   inputSchema: GenerateDesignSystemInputSchema,
   outputSchema: ContextEnvelopeSchema,
   execute: async ({ inputData }) => {
-    logDesignSystem("step 1/6 loading PRD + UL", {
+    logDesignSystem("step 1/5 loading PRD + UL", {
       projectId: inputData.projectId,
     });
 
@@ -72,7 +65,7 @@ const loadContext = createStep({
       ].join("\n"),
     };
 
-    logDesignSystem("step 1/6 loaded PRD + UL", {
+    logDesignSystem("step 1/5 loaded PRD + UL", {
       prdChars: context.prd.length,
       ubiquitousLanguageChars: context.ubiquitousLanguage.length,
     });
@@ -89,7 +82,7 @@ const generateDesignSystemTextStep = createStep({
   inputSchema: ContextEnvelopeSchema,
   outputSchema: DesignTextEnvelopeSchema,
   execute: async ({ inputData }) => {
-    logDesignSystem("step 2/6 generating design-system text", {
+    logDesignSystem("step 2/5 generating design-system text", {
       model: env.OPENAI_MODEL,
     });
 
@@ -122,7 +115,7 @@ const generateDesignSystemTextStep = createStep({
       throw new Error("LLM returned empty design-system text");
     }
 
-    logDesignSystem("step 2/6 generated design-system text", {
+    logDesignSystem("step 2/5 generated design-system text", {
       chars: designSystemText.length,
     });
 
@@ -133,81 +126,83 @@ const generateDesignSystemTextStep = createStep({
   },
 });
 
-const generatePenpotBoardPlanStep = createStep({
-  id: "generatePenpotBoardPlan",
-  inputSchema: DesignTextEnvelopeSchema,
-  outputSchema: BoardPlanEnvelopeSchema,
-  execute: async ({ inputData }) => {
-    logDesignSystem("step 3/6 generating Penpot board plan", {
-      model: env.OPENAI_MODEL,
-    });
-
-    const agent = new Agent({
-      id: "design-system-board-plan-agent",
-      name: "Design System Board Plan Agent",
-      model: openai(env.OPENAI_MODEL),
-      instructions: [
-        "You are a senior product designer planning a Penpot design-system reference board.",
-        "Use the markdown design system as the sole source of truth.",
-        "Choose representative, readable board content. Do not invent tokens or components not supported by the markdown.",
-        "Prioritize header, color, typography, spacing, and core components.",
-      ].join("\n"),
-    });
-
-    const result = await agent.generate(
-      [
-        "Plan one Penpot board from this markdown design system.",
-        "Make the board concise, visual, and scannable.",
-        "Prefer representative specimens over exhaustive dumps.",
-        "Include enough items for the renderer to create a useful board.",
-        "",
-        "Markdown design system:",
-        inputData.designSystemText,
-      ].join("\n"),
-      {
-        structuredOutput: {
-          schema: PenpotBoardPlanSchema,
-        },
-      },
-    );
-
-    const penpotBoardPlan = PenpotBoardPlanSchema.parse(result.object);
-
-    logDesignSystem("step 3/6 generated Penpot board plan", {
-      title: penpotBoardPlan.title,
-      sections: penpotBoardPlan.sections.length,
-      items: penpotBoardPlan.sections.reduce(
-        (total, section) => total + section.items.length,
-        0,
-      ),
-    });
-
-    return {
-      ...inputData,
-      penpotBoardPlan,
-    };
-  },
-});
-
 const createPenpotBoard = createStep({
   id: "createPenpotBoard",
-  inputSchema: BoardPlanEnvelopeSchema,
+  inputSchema: DesignTextEnvelopeSchema,
   outputSchema: PenpotEnvelopeSchema,
   execute: async ({ inputData }) => {
-    logDesignSystem("step 4/6 creating Penpot board");
-    const penpot = await createDesignSystemBoardInPenpot({
-      boardPlan: inputData.penpotBoardPlan,
-    });
-    logDesignSystem("step 4/6 created Penpot board", {
-      fileId: penpot.fileId,
-      boardId: penpot.boardId,
-      boardName: penpot.boardName,
+    logDesignSystem("step 3/5 creating Penpot board", {
+      model: env.OPENAI_MODEL,
+      chars: inputData.designSystemText.length,
     });
 
-    return {
-      ...inputData,
-      penpot,
-    };
+    const penpotMcpClient = new MCPClient({
+      id: "penpot-design-system-mcp-client",
+      servers: {
+        penpot: {
+          url: new URL(env.PENPOT_MCP_URL),
+          timeout: 120_000,
+        },
+      },
+    });
+
+    try {
+      logDesignSystem("MCP loading Penpot tools");
+      const toolsets = await penpotMcpClient.listToolsets();
+
+      logDesignSystem("MCP loaded Penpot tools", {
+        tools:
+          "penpot" in toolsets && toolsets.penpot
+            ? Object.keys(toolsets.penpot)
+            : [],
+      });
+
+      const agent = new Agent({
+        id: "design-system-penpot-agent",
+        name: "Design System Penpot Agent",
+        model: openai(env.OPENAI_MODEL),
+        instructions: [
+          "You create one Penpot board from a markdown design system.",
+          "Use the Penpot tools to create the board directly.",
+          "Use the markdown as the source of truth. Do not invent unsupported tokens.",
+          "Make the board concise, visual, and scannable.",
+          "Include design principles, colors, typography, spacing, components, and interaction rules when present.",
+          "Return the created board info.",
+        ].join("\n"),
+      });
+
+      const result = await agent.generate(
+        [
+          "Create one Penpot design-system board from this markdown.",
+          "Return the created board info.",
+          "",
+          "Markdown design system:",
+          inputData.designSystemText,
+        ].join("\n"),
+        {
+          toolsets: toolsets as never,
+          maxSteps: 12,
+          structuredOutput: {
+            schema: PenpotBoardInfoSchema,
+          },
+        },
+      );
+
+      const penpot = PenpotBoardInfoSchema.parse(result.object);
+
+      logDesignSystem("step 3/5 created Penpot board", {
+        fileId: penpot.fileId,
+        boardId: penpot.boardId,
+        boardName: penpot.boardName,
+      });
+
+      return {
+        ...inputData,
+        penpot,
+      };
+    } finally {
+      await penpotMcpClient.disconnect();
+    }
   },
 });
 
@@ -216,7 +211,7 @@ const exportPenpotPreview = createStep({
   inputSchema: PenpotEnvelopeSchema,
   outputSchema: PreviewEnvelopeSchema,
   execute: async ({ inputData }) => {
-    logDesignSystem("step 5/6 exporting Penpot preview", {
+    logDesignSystem("step 4/5 exporting Penpot preview", {
       boardId: inputData.penpot.boardId,
     });
 
@@ -224,7 +219,7 @@ const exportPenpotPreview = createStep({
       boardId: inputData.penpot.boardId,
     });
 
-    logDesignSystem("step 5/6 exported Penpot preview", {
+    logDesignSystem("step 4/5 exported Penpot preview", {
       mimeType: preview.mimeType,
       hasImageUrl: Boolean(preview.imageUrl),
       hasImageBase64: Boolean(preview.imageBase64),
@@ -242,11 +237,10 @@ const returnResult = createStep({
   inputSchema: PreviewEnvelopeSchema,
   outputSchema: GenerateDesignSystemResultSchema,
   execute: async ({ inputData }) => {
-    logDesignSystem("step 6/6 returning result");
+    logDesignSystem("step 5/5 returning result");
 
     return {
       designSystemText: inputData.designSystemText,
-      penpotBoardPlan: inputData.penpotBoardPlan,
       penpot: inputData.penpot,
       preview: inputData.preview,
     };
@@ -260,7 +254,6 @@ export const designSystemWorkflow = createWorkflow({
 })
   .then(loadContext)
   .then(generateDesignSystemTextStep)
-  .then(generatePenpotBoardPlanStep)
   .then(createPenpotBoard)
   .then(exportPenpotPreview)
   .then(returnResult)
