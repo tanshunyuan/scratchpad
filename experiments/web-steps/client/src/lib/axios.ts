@@ -3,5 +3,5 @@ import { env } from "../env";
 
 export const axiosInstance = axios.create({
   baseURL: env.VITE_SERVER_URL,
-  timeout: 10000,
+  timeout: 600000,
 });
