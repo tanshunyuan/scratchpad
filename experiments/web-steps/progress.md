@@ -7,3 +7,4 @@
 - Added `server/src/design-system/board-plan.ts` using Mastra `structuredOutput`.
 - Updated workflow to add markdown -> board-plan step and pass plan to Penpot renderer.
 - Rewrote `penpot.ts` to render deterministic board from `PenpotBoardPlan`.
+- Updated `log.ts`: per-run logs are prepended into `server/logs/design-system.log`, so newest run appears first. Build passes.

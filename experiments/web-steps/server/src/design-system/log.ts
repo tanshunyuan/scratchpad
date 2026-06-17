@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import pino, { type Logger } from "pino";
 
@@ -26,14 +26,18 @@ export async function withDesignSystemGenerationLog<T>(input: {
   );
   const logger = createLogger(logFilePath);
 
-  return logContext.run(
-    {
-      generationId: input.generationId,
-      logFilePath,
-      logger,
-    },
-    input.callback,
-  );
+  try {
+    return await logContext.run(
+      {
+        generationId: input.generationId,
+        logFilePath,
+        logger,
+      },
+      input.callback,
+    );
+  } finally {
+    prependRunLogToAggregate(logFilePath);
+  }
 }
 
 export function logDesignSystem(message: string, data?: Record<string, unknown>) {
@@ -63,9 +67,28 @@ function createLogger(logFilePath: string) {
     },
     pino.multistream([
       { stream: process.stdout },
-      { stream: pino.destination({ dest: logFilePath, sync: false }) },
+      { stream: pino.destination({ dest: logFilePath, sync: true }) },
     ]),
   );
+}
+
+function prependRunLogToAggregate(logFilePath: string) {
+  if (logFilePath === aggregateLogFilePath || !existsSync(logFilePath)) {
+    return;
+  }
+
+  const runLog = readFileSync(logFilePath, "utf8").trim();
+
+  if (!runLog) {
+    return;
+  }
+
+  const existingLog = existsSync(aggregateLogFilePath)
+    ? readFileSync(aggregateLogFilePath, "utf8").trim()
+    : "";
+
+  const nextLog = existingLog ? `${runLog}\n${existingLog}\n` : `${runLog}\n`;
+  writeFileSync(aggregateLogFilePath, nextLog);
 }
 
 function getLogDirectory() {

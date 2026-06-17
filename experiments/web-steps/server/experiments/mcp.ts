@@ -36,5 +36,5 @@ const testAgent = new Agent({
 });
 
 // const result = await testAgent.generate("Tell me about quantum computing using the Wikipedia information");
-const result = await testAgent.generate("tell me about the tools you have with penpot and what can you do with them");
-console.log("le result ==> ", result.text);
+// const result = await testAgent.generate("tell me about the tools you have with penpot and what can you do with them");
+// console.log("le result ==> ", result.text);

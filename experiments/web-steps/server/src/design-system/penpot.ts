@@ -1,3 +1,5 @@
+import { createOpenAI } from "@ai-sdk/openai";
+import { Agent } from "@mastra/core/agent";
 import { MCPClient } from "@mastra/mcp";
 import { env } from "../../env.js";
 import { logDesignSystem } from "./log.js";
@@ -21,6 +23,10 @@ type BoardVerification = PenpotBoardInfo & {
 };
 
 const MIN_TEXT_SHAPES = 8;
+
+const openai = createOpenAI({
+  apiKey: env.OPENAI_API_KEY,
+});
 
 export async function createDesignSystemBoardInPenpot(input: {
   boardPlan: PenpotBoardPlan;
@@ -75,17 +81,10 @@ export async function exportPenpotBoardPreview(input: {
 
   try {
     const toolsets = await loadPenpotToolsets(penpotMcpClient);
-    const output = await callPenpotToolWithRetry(
+    const preview = await exportPenpotBoardPreviewWithLlm(
       toolsets,
-      "export_shape",
-      {
-        shapeId: input.boardId,
-        format: "png",
-        mode: "shape",
-      },
-      2,
+      input.boardId,
     );
-    const preview = extractPngPreview(output);
 
     logDesignSystem("Penpot render finished: export preview", {
       mimeType: preview.mimeType,
@@ -122,33 +121,48 @@ async function loadPenpotToolsets(penpotMcpClient: MCPClient): Promise<Toolsets>
   return toolsets;
 }
 
-async function callPenpotToolWithRetry(
+async function exportPenpotBoardPreviewWithLlm(
   toolsets: Toolsets,
-  toolName: "execute_code" | "export_shape",
-  input: Record<string, unknown>,
-  attempts: number,
-): Promise<unknown> {
-  let lastError: unknown;
+  boardId: string,
+): Promise<Preview> {
+  logDesignSystem("LLM preview-export agent start", {
+    model: env.OPENAI_MODEL,
+    boardId,
+  });
 
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
-      return await callPenpotTool(toolsets, toolName, input);
-    } catch (error) {
-      lastError = error;
+  const agent = new Agent({
+    id: "design-system-preview-export-agent",
+    name: "Design System Preview Export Agent",
+    model: openai(env.OPENAI_MODEL),
+    instructions: [
+      "You export a Penpot board preview as PNG.",
+      "Use the Penpot tools. Prefer export_shape with the provided board id, format png, mode shape.",
+      "If that fails, inspect or select the board with execute_code, then try export_shape with selection or page.",
+      "Do not describe the image. Return only a short success/failure note after tool calls.",
+    ].join("\n"),
+  });
 
-      if (attempt === attempts || !isRetryablePenpotError(error)) {
-        throw error;
-      }
+  const result = await agent.generate(
+    [
+      "Export this Penpot board preview as PNG.",
+      `Board id: ${boardId}`,
+      "Required output: PNG image data from export_shape.",
+    ].join("\n"),
+    {
+      toolsets: toolsets as never,
+      maxSteps: 6,
+    },
+  );
 
-      logDesignSystem("MCP direct tool retry", {
-        toolName,
-        attempt,
-        error: getErrorMessage(error),
-      });
-    }
-  }
+  const preview = extractPreviewFromLlmToolResults(result);
 
-  throw lastError;
+  logDesignSystem("LLM preview-export agent finished", {
+    textChars: result.text.length,
+    toolResults: result.toolResults.length,
+    mimeType: preview.mimeType,
+  });
+
+  return preview;
 }
 
 async function callPenpotTool(
@@ -185,12 +199,6 @@ async function callPenpotTool(
     });
     throw error;
   }
-}
-
-function isRetryablePenpotError(error: unknown) {
-  const message = getErrorMessage(error).toLowerCase();
-
-  return message.includes("timed out") || message.includes("timeout");
 }
 
 function buildRenderBoardScript(boardPlan: PenpotBoardPlan) {
@@ -558,6 +566,73 @@ function extractFirstTextPart(output: unknown): string | undefined {
     if (isObject(part) && part.type === "text" && typeof part.text === "string") {
       return part.text;
     }
+  }
+
+  return undefined;
+}
+
+function extractPreviewFromLlmToolResults(result: unknown): Preview {
+  if (!isObject(result) || !Array.isArray(result.toolResults)) {
+    throw new Error("LLM preview-export agent returned no tool results");
+  }
+
+  const exportResults = result.toolResults
+    .map((toolResult) => ({
+      name: getToolResultName(toolResult),
+      output: getToolResultOutput(toolResult),
+    }))
+    .filter((toolResult) => toolResult.output !== undefined)
+    .filter(
+      (toolResult) =>
+        !toolResult.name || toolResult.name.includes("export_shape"),
+    )
+    .reverse();
+
+  let lastError: unknown;
+
+  for (const toolResult of exportResults) {
+    try {
+      throwIfToolReturnedFailure(toolResult.output);
+      return extractPngPreview(toolResult.output);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+
+  throw new Error("LLM preview-export agent did not call export_shape");
+}
+
+function getToolResultName(value: unknown): string | undefined {
+  if (!isObject(value)) {
+    return undefined;
+  }
+
+  if (typeof value.toolName === "string") {
+    return value.toolName;
+  }
+
+  if (isObject(value.payload) && typeof value.payload.toolName === "string") {
+    return value.payload.toolName;
+  }
+
+  return undefined;
+}
+
+function getToolResultOutput(value: unknown): unknown {
+  if (!isObject(value)) {
+    return undefined;
+  }
+
+  if ("result" in value) {
+    return value.result;
+  }
+
+  if (isObject(value.payload) && "result" in value.payload) {
+    return value.payload.result;
   }
 
   return undefined;
