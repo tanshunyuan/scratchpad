@@ -1,0 +1,105 @@
+import {
+  connectMcpServer,
+  createAgent,
+  type FlueContext,
+  type WorkflowRouteHandler,
+} from "@flue/runtime";
+import * as v from 'valibot'
+
+export const route: WorkflowRouteHandler = async (_c, next) => next();
+
+export const description =
+  "Creates a simple Penpot artboard with design-system color swatches and exports it as PNG.";
+
+const DESIGN_SYSTEM_COLORS = `# Web Steps color tokens
+
+- --bg: #F7F8FA — page background
+- --surface: #FFFFFF — cards and panels
+- --surface-muted: #F1F3F5 — secondary areas
+- --border: #D9DEE5 — borders
+- --text: #17202A — primary text
+- --text-muted: #5B6673 — secondary text
+- --primary: #2F6FED — key actions and active states
+- --primary-hover: #2459C7 — primary hover
+- --primary-soft: #EAF1FF — focus rings and selected backgrounds
+- --success: #1F9D68 — success feedback
+- --warning: #C58A16 — warning feedback
+- --danger: #C94A4A — destructive and error states
+- --info: #3C7BEA — informational feedback`;
+
+const PENPOT_AGENT_INSTRUCTIONS = [
+  "You create simple Penpot boards and export images.",
+  "Use the Penpot MCP tools only against the already-open document.",
+  "Useful tools:",
+  "- mcp__penpot__execute_code for Penpot Plugin API work.",
+  "- mcp__penpot__export_shape for PNG export.",
+  "Inside execute_code, use penpot.createBoard(), penpot.createRectangle(), and penpot.createText(text).",
+  "Do not use penpot.createShape. It does not exist.",
+  "After creating the artboard, always export the artboard with mcp__penpot__export_shape using format png and mode shape.",
+].join("\n");
+
+function buildPrompt(input: { designSystemText: string }) {
+  return [
+    "Create one simple Penpot artboard named `Design System Color Swatches`.",
+    "Do not open or create another Penpot document.",
+    "Use the design-system tokens below as the only color source.",
+    "Layout: clean white/neutral artboard, title, short subtitle, grid of swatches.",
+    "Each swatch must show token name, hex value, and short usage note when present.",
+    "Use readable text and enough spacing. Keep it simple.",
+    "When finished, get the real artboard id and name from Penpot.",
+    "Then call mcp__penpot__export_shape with:",
+    "- shapeId: real artboard id",
+    "- format: png",
+    "- mode: shape",
+    "Final answer must include artboard id, artboard name, and the export_shape image response exactly as returned by the tool.",
+    "Do not skip export.",
+    "",
+    "## Design system colors",
+    input.designSystemText,
+  ].join("\n");
+}
+
+const agent = createAgent(() => ({
+  model: "openai/gpt-5.4-mini",
+  thinkingLevel: "medium",
+  instructions: PENPOT_AGENT_INSTRUCTIONS,
+}));
+
+type Env = {
+  PENPOT_MCP_URL: string;
+};
+
+type Payload = {
+  designSystemText?: string;
+};
+
+export async function run({
+  init,
+  payload,
+  env,
+}: FlueContext<Payload, Env>) {
+  const penpot = await connectMcpServer("penpot", {
+    url: env.PENPOT_MCP_URL,
+    timeoutMs: 120_000,
+  });
+
+  try {
+    const harness = await init(agent, { tools: penpot.tools });
+    const session = await harness.session();
+    const response = await session.prompt(
+      buildPrompt({
+        designSystemText: payload.designSystemText ?? DESIGN_SYSTEM_COLORS,
+      }), {
+        result: v.object({
+          artboard_id: v.string(),
+          image: v.string(),
+          note: v.string()
+        })
+      }
+    );
+
+    return response.data
+  } finally {
+    await penpot.close();
+  }
+}
