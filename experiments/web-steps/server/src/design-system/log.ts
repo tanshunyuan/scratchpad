@@ -1,102 +1,46 @@
-import { AsyncLocalStorage } from "node:async_hooks";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import pino, { type Logger } from "pino";
+import pino from "pino";
 
-const logDirectory = getLogDirectory();
-const aggregateLogFilePath = path.join(logDirectory, "design-system.log");
+const logDirectory = path.join(process.cwd(), "logs");
 
-mkdirSync(logDirectory, { recursive: true });
-
-const aggregateLogger = createLogger(aggregateLogFilePath);
-
-const logContext = new AsyncLocalStorage<{
-  generationId: string;
-  logFilePath: string;
-  logger: Logger;
-}>();
-
-export async function withDesignSystemGenerationLog<T>(input: {
-  generationId: string;
-  callback: () => Promise<T>;
-}) {
-  const logFilePath = path.join(
-    logDirectory,
-    `design-system-${input.generationId}.log`,
-  );
-  const logger = createLogger(logFilePath);
-
-  try {
-    return await logContext.run(
-      {
-        generationId: input.generationId,
-        logFilePath,
-        logger,
-      },
-      input.callback,
-    );
-  } finally {
-    prependRunLogToAggregate(logFilePath);
-  }
-}
-
-export function logDesignSystem(message: string, data?: Record<string, unknown>) {
-  const context = logContext.getStore();
-  const logger = context?.logger ?? aggregateLogger;
-
-  logger.info(
-    {
-      ...(data ?? {}),
-      ...(context
-        ? {
-            generationId: context.generationId,
-            logFilePath: context.logFilePath,
-          }
-        : {}),
-    },
-    `[design-system] ${message}`,
-  );
+function getTimestampedLogFilePath() {
+  const timestamp = new Date().toISOString().replaceAll(":", "-");
+  return path.join(logDirectory, `design-system-${timestamp}.log`);
 }
 
 function createLogger(logFilePath: string) {
-  return pino(
-    {
-      level: "info",
-      base: undefined,
-      timestamp: pino.stdTimeFunctions.isoTime,
+  return pino({
+    level: "info",
+    base: undefined,
+    timestamp: pino.stdTimeFunctions.isoTime,
+    transport: {
+      targets: [
+        {
+          target: "pino/file",
+          options: { destination: 1 },
+        },
+        {
+          target: "pino/file",
+          options: {
+            destination: logFilePath,
+            mkdir: true,
+          },
+        },
+      ],
     },
-    pino.multistream([
-      { stream: process.stdout },
-      { stream: pino.destination({ dest: logFilePath, sync: true }) },
-    ]),
-  );
+  });
 }
 
-function prependRunLogToAggregate(logFilePath: string) {
-  if (logFilePath === aggregateLogFilePath || !existsSync(logFilePath)) {
-    return;
-  }
+export let designSystemLogFilePath = getTimestampedLogFilePath();
+export let designSystemLogger = createLogger(designSystemLogFilePath);
 
-  const runLog = readFileSync(logFilePath, "utf8").trim();
+export function startDesignSystemGenerationLog() {
+  designSystemLogFilePath = getTimestampedLogFilePath();
+  designSystemLogger = createLogger(designSystemLogFilePath);
 
-  if (!runLog) {
-    return;
-  }
-
-  const existingLog = existsSync(aggregateLogFilePath)
-    ? readFileSync(aggregateLogFilePath, "utf8").trim()
-    : "";
-
-  const nextLog = existingLog ? `${runLog}\n${existingLog}\n` : `${runLog}\n`;
-  writeFileSync(aggregateLogFilePath, nextLog);
+  return designSystemLogFilePath;
 }
 
-function getLogDirectory() {
-  const rootServerDirectory = path.join(process.cwd(), "server");
-
-  if (existsSync(path.join(rootServerDirectory, "package.json"))) {
-    return path.join(rootServerDirectory, "logs");
-  }
-
-  return path.join(process.cwd(), "logs");
+export function logDesignSystem(message: string, data?: Record<string, unknown>) {
+  designSystemLogger.info(data ?? {}, `[design-system] ${message}`);
 }
