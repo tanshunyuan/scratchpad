@@ -156,7 +156,7 @@ const generateDesignSystemTextStep = createStep({
 ### Radius & elevation
 - **Radius:** 10 for cards/inputs/buttons, 16 for large panels
 - **Border:** 1px \`--border\`
-- **Shadow:** subtle only  
+- **Shadow:** subtle only
   \`0 1px 2px rgba(16,24,40,.06), 0 4px 12px rgba(16,24,40,.06)\`
 
 ---
@@ -309,10 +309,10 @@ const createPenpotBoard = createStep({
 
     try {
       logDesignSystem("MCP loading Penpot tools");
-      const toolsets = await penpotMcpClient.listToolsets();
+      const tools = await penpotMcpClient.listTools();
 
       logDesignSystem("MCP loaded Penpot tools", {
-        tools: toolsets
+        tools: tools
       });
 
       const agent = new Agent({
@@ -320,11 +320,9 @@ const createPenpotBoard = createStep({
         name: "Design System Penpot Agent",
         model: openai(env.OPENAI_MODEL),
         instructions: [
-          "You create or reuse one design-system reference board in Penpot.",
           "Use the Penpot MCP tools to inspect, write, and verify the open document.",
-          "Use the markdown as the source of truth. Do not invent unsupported tokens.",
-          "Use real Penpot identifiers from the document for the final structured output.",
         ].join("\n"),
+        tools: tools
       });
 
       const result = await agent.generate(
@@ -403,6 +401,16 @@ const createPenpotBoard = createStep({
       );
 
       const penpot = PenpotBoardInfoSchema.parse(result.object);
+
+      if (
+        penpot.fileId === "unknown" ||
+        penpot.boardId === "unknown" ||
+        penpot.boardName === "unknown"
+      ) {
+        throw new Error(
+          `Penpot board creation returned unknown identifiers: ${JSON.stringify(penpot)}`,
+        );
+      }
 
       logDesignSystem("step 3/5 created Penpot board", {
         fileId: penpot.fileId,
