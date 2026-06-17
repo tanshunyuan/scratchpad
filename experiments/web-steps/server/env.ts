@@ -13,6 +13,10 @@ export const env = createEnv({
     // OPENAI_MODEL: z.string().default("gpt-5.4-mini"),
     OPENAI_MODEL: z.string().default("gpt-5.4"),
     PENPOT_MCP_URL: z.url(),
+    DESIGN_SYSTEM_EXPORT_PREVIEW: z
+      .enum(["true", "false"])
+      .default("true")
+      .transform((value) => value === "true"),
   },
   runtimeEnv: process.env,
 });
