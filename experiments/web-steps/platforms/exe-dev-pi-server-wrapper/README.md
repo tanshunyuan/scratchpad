@@ -1,21 +1,22 @@
 # Pi Server Wrapper
 
-Server-side wrapper for the Pi coding agent. It exposes a WebSocket API backed by a system-level Pi `AgentSession` with bash, file read/write/edit, skills, and extension tools.
+HTTP job worker for the Pi coding agent. It accepts long-running agent jobs, streams progress over Server-Sent Events (SSE), and returns final job state/results.
 
 ## Architecture
 
-```
-External process
-  │  JSON messages over /api/ws
+```txt
+External app server
+  │  POST /api/jobs
+  │  GET /api/jobs/:jobId/events
   ▼
-Node.js server (Express + ws)
-  │  Pi SDK (createAgentSession)
+Node.js server (Express)
+  │  Pi SDK (per-job createAgentSession)
   ▼
-System tools (bash, files, skills, extensions)
+System tools (bash, files, skills, extensions, MCP)
 ```
 
-- **Server** (`server/index.ts`): Runs the Pi SDK `AgentSession` with full system access. Loads auth and model config from `~/.pi/agent`. Streams agent events over WebSocket. Fetches models from a local LiteLLM instance.
-- **Protocol** (`shared/protocol.ts`): Typed JSON message definitions for the WebSocket wire format.
+- **Server** (`server/index.ts`): Runs per-job Pi SDK `AgentSession`s with full system access. Loads auth and model config from `~/.pi/agent`. Streams job events over SSE.
+- **Protocol** (`shared/protocol.ts`): Typed job/event payloads.
 
 ## Setup
 
@@ -29,8 +30,6 @@ npm run build
 | Variable | Default | Description |
 |---|---|---|
 | `PORT` | `3001` | Server listen port |
-| `LITELLM_URL` | `http://192.168.50.240:4000` | LiteLLM API base URL |
-| `LITELLM_KEY` | *(from ~/.pi/agent)* | LiteLLM API key (auto-detected from Pi config if unset) |
 
 ## Development
 
@@ -48,24 +47,62 @@ PORT=8085 npm start
 
 ## API
 
-- WebSocket: `/api/ws`
-- Health check: `/health`
+### `POST /api/jobs`
+
+Create and start a background Pi agent job.
+
+```json
+{
+  "prompt": "Draw a dashboard in Penpot",
+  "model": { "provider": "...", "id": "..." },
+  "thinkingLevel": "medium",
+  "metadata": { "projectId": "..." }
+}
+```
+
+Response:
+
+```json
+{
+  "jobId": "...",
+  "status": "queued"
+}
+```
+
+### `GET /api/jobs/:jobId/events`
+
+SSE stream. Replays existing events, then streams new events.
+
+Events:
+
+- `status`
+- `agentEvent`
+- `stateSync`
+- `done`
+- `error`
+- `aborted`
+
+### `GET /api/jobs/:jobId`
+
+Returns current job info, status, result/error, event count.
+
+### `POST /api/jobs/:jobId/abort`
+
+Abort running job.
+
+### `GET /api/models`
+
+Returns models from Pi model registry.
+
+### `GET /health`
+
+Health check.
 
 ## Features
 
-- Full Pi agent with system access (bash, read, edit, write, extensions)
-- Session persistence and history — create new sessions, browse and resume previous ones
-- Model switching (pulls from LiteLLM + Pi model registry)
-- Configurable thinking level (off, minimal, low, medium, high)
-- Streaming agent events over WebSocket
-
-## Project structure
-
-```
-├── server/
-│   └── index.ts          Express + WebSocket server, Pi SDK session
-├── shared/
-│   └── protocol.ts       WebSocket message type definitions
-├── tsconfig.json         TypeScript config
-└── package.json          Dependencies and scripts
-```
+- Per-job Pi agent sessions
+- Job status/result tracking
+- SSE progress streaming
+- Session isolation between jobs
+- Model selection per job
+- Configurable thinking level per job

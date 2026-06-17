@@ -1,7 +1,7 @@
 import express from "express";
+import { randomUUID } from "crypto";
 import { createServer } from "http";
 import os from "os";
-import { WebSocketServer, WebSocket } from "ws";
 import {
   AuthStorage,
   createAgentSession,
@@ -12,32 +12,45 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import type { Model, Api } from "@mariozechner/pi-ai";
 import type {
-  IncomingMessage,
-  OutgoingMessage,
+  CreateJobRequest,
+  CreateJobResponse,
+  JobEvent,
+  JobInfo,
+  JobStatus,
   ModelInfo,
   SerializedAgentState,
-  SessionListItem,
 } from "../shared/protocol.js";
 
 const PORT = parseInt(process.env.PORT || "3001");
-const LITELLM_URL = process.env.LITELLM_URL || "http://192.168.50.240:4000";
-let litellmKey = process.env.LITELLM_KEY || "";
+const HOME_DIR = os.homedir();
 
 const app = express();
 const server = createServer(app);
-const wss = new WebSocketServer({ server, path: "/api/ws" });
+
+app.use(express.json({ limit: "1mb" }));
+
+let authStorage: AuthStorage;
+let modelRegistry: ModelRegistry;
+
+interface Job {
+  id: string;
+  status: JobStatus;
+  prompt: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  result?: unknown;
+  error?: string;
+  events: JobEvent[];
+  subscribers: Set<(event: JobEvent) => void>;
+  session?: AgentSession;
+}
+
+const jobs = new Map<string, Job>();
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
-
-const HOME_DIR = os.homedir();
-
-let session: AgentSession;
-let authStorage: AuthStorage;
-let modelRegistry: ModelRegistry;
-let sessionUnsubscribe: (() => void) | undefined;
-const connections = new Set<WebSocket>();
 
 function modelToInfo(model: Model<Api>): ModelInfo {
   return {
@@ -47,45 +60,7 @@ function modelToInfo(model: Model<Api>): ModelInfo {
   };
 }
 
-function buildModelLookupCandidates(provider: string, modelId: string): Array<{ provider: string; modelId: string }> {
-  const normalizedProvider = provider.trim();
-  const normalizedModelId = modelId.trim();
-  const candidates: Array<{ provider: string; modelId: string }> = [];
-  const seen = new Set<string>();
-
-  const add = (candidateProvider: string, candidateModelId: string) => {
-    const p = candidateProvider.trim();
-    const id = candidateModelId.trim();
-    if (!p || !id) return;
-    const key = `${p}/${id}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    candidates.push({ provider: p, modelId: id });
-  };
-
-  // Exact pair from incoming message first.
-  add(normalizedProvider, normalizedModelId);
-
-  // Handle merged identifiers like provider=ollama/local and modelId=Qwen...
-  if (normalizedProvider.startsWith("ollama/")) {
-    const providerSuffix = normalizedProvider.slice("ollama/".length);
-    add("ollama", `${providerSuffix}/${normalizedModelId}`);
-  }
-
-  // Handle modelId values like ollama/local/Qwen...
-  if (normalizedModelId.startsWith("ollama/")) {
-    add("ollama", normalizedModelId.slice("ollama/".length));
-  }
-
-  // Best-effort fallback for Ollama if incoming message used bare model name.
-  if (normalizedProvider === "ollama" && !normalizedModelId.includes("/")) {
-    add("ollama", `local/${normalizedModelId}`);
-  }
-
-  return candidates;
-}
-
-function serializeState(): SerializedAgentState {
+function serializeState(session: AgentSession): SerializedAgentState {
   const state = session.agent.state;
   return {
     messages: state.messages,
@@ -101,66 +76,8 @@ function serializeState(): SerializedAgentState {
   };
 }
 
-function broadcast(msg: OutgoingMessage) {
-  const data = JSON.stringify(msg);
-  for (const connection of connections) {
-    if (connection.readyState === WebSocket.OPEN) {
-      connection.send(data);
-    }
-  }
-}
-
-function send(ws: WebSocket, msg: OutgoingMessage) {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(msg));
-  }
-}
-
-async function fetchLiteLLMModels(): Promise<ModelInfo[]> {
-  try {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (litellmKey) {
-      headers["Authorization"] = `Bearer ${litellmKey}`;
-    }
-    const res = await fetch(`${LITELLM_URL}/v1/models`, { headers });
-    if (!res.ok) {
-      console.error(`LiteLLM /v1/models returned ${res.status}`);
-      return [];
-    }
-    const json = await res.json() as { data?: Array<{ id: string; owned_by?: string }> };
-    return (json.data || []).map((m) => ({
-      provider: "ollama",
-      id: m.id.trim(),
-      name: m.id.trim(),
-    }));
-  } catch (err) {
-    console.error("Failed to fetch LiteLLM models:", err);
-    return [];
-  }
-}
-
 function getRegistryModels(): ModelInfo[] {
-  return modelRegistry
-    .getAll()
-    .filter((m) => m.provider === "ollama")
-    .map(modelToInfo);
-}
-
-async function getModels(): Promise<ModelInfo[]> {
-  const litellmModels = await fetchLiteLLMModels();
-  const registryModels = getRegistryModels();
-
-  // Merge: registry models first, then any LiteLLM models not already in registry
-  const seen = new Set(registryModels.map((m) => `${m.provider}/${m.id}`));
-  const merged = [...registryModels];
-  for (const m of litellmModels) {
-    const key = `${m.provider}/${m.id}`;
-    if (!seen.has(key)) {
-      merged.push(m);
-      seen.add(key);
-    }
-  }
-  return merged;
+  return modelRegistry.getAll().map(modelToInfo);
 }
 
 function findModel(provider: string, modelId: string): Model<Api> | undefined {
@@ -172,17 +89,104 @@ function safeSerializeEvent(event: AgentSessionEvent): any {
     const json = JSON.stringify(event);
     return JSON.parse(json);
   } catch {
-    // If circular refs or non-serializable data, return a simplified version
     return { type: (event as any).type, _serialized: false };
   }
 }
 
-function setupSessionEvents() {
-  if (sessionUnsubscribe) sessionUnsubscribe();
+function emitJobEvent(job: Job, event: JobEvent["event"], data: unknown) {
+  const jobEvent: JobEvent = {
+    id: job.events.length + 1,
+    event,
+    data,
+    createdAt: new Date().toISOString(),
+  };
 
-  sessionUnsubscribe = session.subscribe((event: AgentSessionEvent) => {
+  job.events.push(jobEvent);
+  job.updatedAt = jobEvent.createdAt;
+
+  for (const subscriber of job.subscribers) {
+    subscriber(jobEvent);
+  }
+}
+
+function sendSseEvent(res: express.Response, event: JobEvent) {
+  res.write(`id: ${event.id}\n`);
+  res.write(`event: ${event.event}\n`);
+  res.write(`data: ${JSON.stringify(event.data)}\n\n`);
+}
+
+function jobToInfo(job: Job): JobInfo {
+  return {
+    id: job.id,
+    status: job.status,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    prompt: job.prompt,
+    metadata: job.metadata,
+    result: job.result,
+    error: job.error,
+    eventCount: job.events.length,
+  };
+}
+
+function createJob(req: CreateJobRequest): Job {
+  const now = new Date().toISOString();
+  return {
+    id: randomUUID(),
+    status: "queued",
+    prompt: req.prompt,
+    metadata: req.metadata,
+    createdAt: now,
+    updatedAt: now,
+    events: [],
+    subscribers: new Set(),
+  };
+}
+
+function validateCreateJobRequest(body: unknown): CreateJobRequest | undefined {
+  if (!body || typeof body !== "object") return undefined;
+
+  const request = body as Partial<CreateJobRequest>;
+  if (typeof request.prompt !== "string" || !request.prompt.trim()) return undefined;
+
+  return {
+    ...request,
+    prompt: request.prompt.trim(),
+  };
+}
+
+async function runJob(job: Job, req: CreateJobRequest) {
+  job.status = "running";
+  emitJobEvent(job, "status", { jobId: job.id, status: job.status });
+
+  const { session, modelFallbackMessage } = await createAgentSession({
+    cwd: HOME_DIR,
+    authStorage,
+    modelRegistry,
+    sessionManager: SessionManager.create(HOME_DIR),
+  });
+
+  job.session = session;
+
+  if (modelFallbackMessage) {
+    emitJobEvent(job, "status", { jobId: job.id, status: job.status, message: modelFallbackMessage });
+  }
+
+  if (req.model) {
+    const model = findModel(req.model.provider, req.model.id);
+    if (!model) {
+      throw new Error(`Model not found: ${req.model.provider}/${req.model.id}`);
+    }
+    await session.setModel(model);
+  }
+
+  if (req.thinkingLevel) {
+    session.setThinkingLevel(req.thinkingLevel as any);
+  }
+
+  const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
     const safeEvent = safeSerializeEvent(event);
-    broadcast({ type: "agentEvent", event: safeEvent });
+    emitJobEvent(job, "agentEvent", safeEvent);
 
     if (
       event.type === "agent_start" ||
@@ -190,195 +194,134 @@ function setupSessionEvents() {
       event.type === "message_end" ||
       event.type === "turn_end"
     ) {
-      broadcast({ type: "stateSync", state: serializeState() });
+      emitJobEvent(job, "stateSync", serializeState(session));
     }
   });
-}
 
-async function handleIncomingMessage(ws: WebSocket, msg: IncomingMessage) {
   try {
-    switch (msg.type) {
-      case "prompt": {
-        session.prompt(msg.text).catch((err: any) => {
-          console.error("Prompt error:", err);
-          broadcast({ type: "error", message: err.message || String(err) });
-        });
-        break;
-      }
-      case "steer": {
-        await session.steer(msg.text);
-        break;
-      }
-      case "followUp": {
-        await session.followUp(msg.text);
-        break;
-      }
-      case "abort": {
-        await session.abort();
-        broadcast({ type: "stateSync", state: serializeState() });
-        break;
-      }
-      case "getModels": {
-        const models = await getModels();
-        const current = session.model ? modelToInfo(session.model) : undefined;
-        send(ws, {
-          type: "models",
-          models,
-          current,
-          thinkingLevel: session.thinkingLevel,
-        });
-        break;
-      }
-      case "setModel": {
-        let model: Model<Api> | undefined;
-        for (const candidate of buildModelLookupCandidates(msg.provider, msg.modelId)) {
-          model = findModel(candidate.provider, candidate.modelId);
-          if (model) break;
-        }
+    await session.prompt(job.prompt);
 
-        if (!model) {
-          send(ws, { type: "error", message: `Model not found: ${msg.provider}/${msg.modelId}` });
-          return;
-        }
-        await session.setModel(model);
-        broadcast({
-          type: "modelChanged",
-          model: modelToInfo(model),
-          thinkingLevel: session.thinkingLevel,
-        });
-        break;
-      }
-      case "setThinkingLevel": {
-        session.setThinkingLevel(msg.level as any);
-        const currentModel = session.model ? modelToInfo(session.model) : { provider: "", id: "", name: "" };
-        broadcast({
-          type: "modelChanged",
-          model: currentModel,
-          thinkingLevel: session.thinkingLevel,
-        });
-        break;
-      }
-      case "getState": {
-        send(ws, { type: "stateSync", state: serializeState() });
-        break;
-      }
-      case "newSession": {
-        if (session.isStreaming) {
-          await session.abort();
-        }
-        if (sessionUnsubscribe) sessionUnsubscribe();
+    if ((job.status as JobStatus) === "aborted") return;
 
-        const { session: newSession } = await createAgentSession({
-          cwd: HOME_DIR,
-          authStorage,
-          modelRegistry,
-          sessionManager: SessionManager.create(HOME_DIR),
-        });
-        session = newSession;
-        setupSessionEvents();
-        broadcast({ type: "sessionChanged", sessionId: session.sessionId });
-        broadcast({ type: "stateSync", state: serializeState() });
-        console.log(`New session created: ${session.sessionId}`);
-        break;
-      }
-      case "getSessions": {
-        const sessionInfos = await SessionManager.list(HOME_DIR);
-        const items: SessionListItem[] = sessionInfos
-          .sort((a, b) => b.modified.getTime() - a.modified.getTime())
-          .map((s) => ({
-            id: s.id,
-            path: s.path,
-            name: s.name,
-            cwd: s.cwd,
-            created: s.created.toISOString(),
-            modified: s.modified.toISOString(),
-            messageCount: s.messageCount,
-            firstMessage: s.firstMessage,
-          }));
-        send(ws, { type: "sessions", sessions: items, currentSessionId: session.sessionId });
-        break;
-      }
-      case "loadSession": {
-        if (session.isStreaming) {
-          await session.abort();
-        }
-        if (sessionUnsubscribe) sessionUnsubscribe();
-
-        const loadedManager = SessionManager.open(msg.sessionPath, undefined, HOME_DIR);
-        const { session: loadedSession } = await createAgentSession({
-          cwd: HOME_DIR,
-          authStorage,
-          modelRegistry,
-          sessionManager: loadedManager,
-        });
-        session = loadedSession;
-        setupSessionEvents();
-        broadcast({ type: "sessionChanged", sessionId: session.sessionId });
-        broadcast({ type: "stateSync", state: serializeState() });
-        console.log(`Loaded session: ${session.sessionId}`);
-        break;
-      }
-    }
-  } catch (err: any) {
-    console.error(`Error handling ${msg.type}:`, err);
-    send(ws, { type: "error", message: err.message || String(err) });
+    job.status = "done";
+    job.result = serializeState(session);
+    emitJobEvent(job, "done", { jobId: job.id, status: job.status, result: job.result });
+  } finally {
+    unsubscribe();
   }
 }
 
+function failJob(job: Job, err: unknown) {
+  if (job.status === "aborted") return;
+
+  const message = err instanceof Error ? err.message : String(err);
+  job.status = "error";
+  job.error = message;
+  emitJobEvent(job, "error", { jobId: job.id, status: job.status, error: message });
+}
+
+app.get("/api/models", (_req, res) => {
+  res.json({ models: getRegistryModels() });
+});
+
+app.post("/api/jobs", (httpReq, res) => {
+  const createReq = validateCreateJobRequest(httpReq.body);
+  if (!createReq) {
+    res.status(400).json({ error: "Expected JSON body with non-empty prompt" });
+    return;
+  }
+
+  const job = createJob(createReq);
+  jobs.set(job.id, job);
+
+  emitJobEvent(job, "status", { jobId: job.id, status: job.status });
+
+  const response: CreateJobResponse = {
+    jobId: job.id,
+    status: job.status,
+  };
+  res.status(202).json(response);
+
+  runJob(job, createReq).catch((err: unknown) => {
+    console.error(`Job ${job.id} failed:`, err);
+    failJob(job, err);
+  });
+});
+
+app.get("/api/jobs/:jobId", (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: "Job not found" });
+    return;
+  }
+
+  res.json(jobToInfo(job));
+});
+
+app.get("/api/jobs/:jobId/events", (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: "Job not found" });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+
+  res.write(`retry: 1000\n\n`);
+
+  for (const event of job.events) {
+    sendSseEvent(res, event);
+  }
+
+  const subscriber = (event: JobEvent) => {
+    sendSseEvent(res, event);
+  };
+  job.subscribers.add(subscriber);
+
+  const heartbeat = setInterval(() => {
+    res.write(`: heartbeat\n\n`);
+  }, 30000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    job.subscribers.delete(subscriber);
+  });
+});
+
+app.post("/api/jobs/:jobId/abort", async (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: "Job not found" });
+    return;
+  }
+
+  if (job.status === "done" || job.status === "error" || job.status === "aborted") {
+    res.json(jobToInfo(job));
+    return;
+  }
+
+  job.status = "aborted";
+  if (job.session?.isStreaming) {
+    await job.session.abort();
+  }
+
+  emitJobEvent(job, "aborted", { jobId: job.id, status: job.status });
+  res.json(jobToInfo(job));
+});
+
 async function main() {
-  console.log("Initializing Pi agent session...");
+  console.log("Initializing Pi agent worker...");
 
   authStorage = AuthStorage.create();
   modelRegistry = ModelRegistry.create(authStorage);
 
-  if (!litellmKey) {
-    const key = await modelRegistry.getApiKeyForProvider("ollama");
-    if (key) litellmKey = key;
-  }
-
-  const { session: agentSession, modelFallbackMessage } = await createAgentSession({
-    cwd: HOME_DIR,
-    authStorage,
-    modelRegistry,
-    sessionManager: SessionManager.create(HOME_DIR),
-  });
-
-  session = agentSession;
-
-  if (modelFallbackMessage) {
-    console.log("Model fallback:", modelFallbackMessage);
-  }
-
-  console.log(`Model: ${session.model?.provider}/${session.model?.id}`);
-  console.log(`Thinking: ${session.thinkingLevel}`);
-  console.log(`Tools: ${session.getActiveToolNames().join(", ")}`);
-
-  setupSessionEvents();
-
-  wss.on("connection", (ws) => {
-    connections.add(ws);
-    console.log(`WebSocket connected (${connections.size} total)`);
-
-    send(ws, { type: "ready" });
-    send(ws, { type: "stateSync", state: serializeState() });
-
-    ws.on("message", (data) => {
-      try {
-        const msg = JSON.parse(data.toString()) as IncomingMessage;
-        handleIncomingMessage(ws, msg);
-      } catch (err) {
-        console.error("Invalid message:", err);
-      }
-    });
-
-    ws.on("close", () => {
-      connections.delete(ws);
-      console.log(`WebSocket disconnected (${connections.size} total)`);
-    });
-  });
+  console.log(`Models: ${getRegistryModels().map((m) => `${m.provider}/${m.id}`).join(", ")}`);
 
   server.listen(PORT, () => {
-    console.log(`Pi server wrapper listening on http://localhost:${PORT}`);
+    console.log(`Pi job worker listening on http://localhost:${PORT}`);
   });
 }
 

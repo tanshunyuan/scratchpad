@@ -1,23 +1,21 @@
-# Task Plan: Markdown -> Board Plan -> Penpot Renderer
+# Task Plan
 
-## Goal
-Keep markdown design system as source of truth. Add structured LLM board-plan step, then render plan in Penpot via deterministic MCP calls.
+Goal: Convert Pi wrapper from WebSocket to HTTP job + SSE. Update app experiment to call job API.
 
 ## Phases
-1. Research current design-system flow — complete
-2. Add board-plan schema/types — complete
-3. Add LLM board-plan generator with structuredOutput — complete
-4. Update workflow/result shape — complete
-5. Simplify Penpot renderer to render board plan — complete
-6. Build/test — pending
+1. Define job/SSE protocol types - complete
+2. Rewrite Pi wrapper server routes - complete
+3. Update wrapper package/docs - complete
+4. Update app experiment mcp-v2.ts - complete
+5. Build/test - complete
 
 ## Decisions
-- Markdown remains primary saved artifact.
-- LLM may plan board with structuredOutput; LLM must not write Penpot JS.
-- Penpot MCP calls stay direct through `listToolsets()`.
-- Renderer fails hard on MCP tool failure and invalid verification.
+- Native Express SSE, no better-sse dependency.
+- Per-job AgentSession for isolation.
+- In-memory job store for first cut.
+- App experiment manually parses SSE via fetch stream; no dependency.
 
 ## Errors Encountered
-| Error | Resolution |
-|---|---|
-| None yet | |
+| Error | Attempt | Resolution |
+|---|---|---|
+| Wrapper build TS2367 on `job.status === "aborted"` | First build | Cast `job.status as JobStatus` where TS narrowed status too much. |

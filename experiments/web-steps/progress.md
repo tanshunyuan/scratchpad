@@ -1,10 +1,11 @@
 # Progress
 
-## 2026-06-17
-- Created planning files.
-- Reviewed `generator.ts`, `workflow.ts`, `types.ts`, `store.ts`, current `penpot.ts` behavior.
-- Added board-plan schemas to `types.ts`.
-- Added `server/src/design-system/board-plan.ts` using Mastra `structuredOutput`.
-- Updated workflow to add markdown -> board-plan step and pass plan to Penpot renderer.
-- Rewrote `penpot.ts` to render deterministic board from `PenpotBoardPlan`.
-- Updated `log.ts`: per-run logs are prepended into `server/logs/design-system.log`, so newest run appears first. Build passes.
+- Created plan files.
+- Inspected wrapper server/protocol/package and app experiment.
+- Replaced protocol with job API types plus legacy state payload types.
+- Rewrote wrapper as HTTP job worker with native SSE.
+- Removed ws direct deps from wrapper package.json and refreshed pnpm lockfile.
+- Updated wrapper README/AGENTS docs.
+- Replaced app experiment WebSocket client with POST job + SSE fetch-stream client.
+- Ran wrapper build: passed.
+- Ran server build: passed.

@@ -2,13 +2,13 @@
 
 ## Project overview
 
-This is a server-side WebSocket wrapper for the Pi coding agent. The server runs a real Pi `AgentSession` with system-level tools (bash, file I/O, extensions). External processes communicate over a JSON WebSocket protocol defined in `shared/protocol.ts`.
+This is a server-side HTTP job worker for the Pi coding agent. The server runs per-job Pi `AgentSession`s with system-level tools (bash, file I/O, extensions). External processes create jobs with JSON over HTTP and receive progress over SSE. Payload types live in `shared/protocol.ts`.
 
 ## Key conventions
 
 - **Server only** — no bundled UI or static frontend.
 - **Pi SDK types** come from `@mariozechner/pi-coding-agent` (server) and `@mariozechner/pi-agent-core` / `@mariozechner/pi-ai` (shared types). Do not duplicate SDK types — import them.
-- **Protocol changes** must update `shared/protocol.ts` and the server handler in `handleIncomingMessage()`.
+- **Protocol changes** must update `shared/protocol.ts` and the Express route handlers.
 
 ## Working directory
 
@@ -19,15 +19,16 @@ The agent session defaults to `os.homedir()`. This is passed as `cwd` to `create
 - `npm run dev` — server dev mode (`tsx watch server/index.ts`)
 - `npm run build` — TypeScript typecheck (`tsc --noEmit`)
 - `npm start` — run server
-- WebSocket endpoint: `/api/ws`
+- Job create endpoint: `POST /api/jobs`
+- Job events endpoint: `GET /api/jobs/:jobId/events`
 - Health endpoint: `/health`
 
 ## File layout
 
-- `server/index.ts` — backend (Express, WebSocket, Pi SDK session, LiteLLM integration, session management)
-- `shared/protocol.ts` — WebSocket message types shared between server and external processes
+- `server/index.ts` — backend (Express, HTTP job API, SSE streaming, Pi SDK sessions, job management)
+- `shared/protocol.ts` — HTTP job and SSE payload types shared between server and external processes
 
 ## Things to watch out for
 
-- `AgentSessionEvent` objects may contain circular references — the server uses `safeSerializeEvent()` before sending over WebSocket.
+- `AgentSessionEvent` objects may contain circular references — the server uses `safeSerializeEvent()` before sending over SSE.
 - Keep protocol messages JSON-serializable.

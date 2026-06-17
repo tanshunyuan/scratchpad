@@ -1,19 +1,42 @@
-// ── Incoming WebSocket messages ──
+// ── Job API ──
 
-export type IncomingMessage =
-  | { type: "prompt"; text: string }
-  | { type: "steer"; text: string }
-  | { type: "followUp"; text: string }
-  | { type: "abort" }
-  | { type: "getModels" }
-  | { type: "setModel"; provider: string; modelId: string }
-  | { type: "setThinkingLevel"; level: string }
-  | { type: "getState" }
-  | { type: "newSession" }
-  | { type: "getSessions" }
-  | { type: "loadSession"; sessionPath: string };
+export type JobStatus = "queued" | "running" | "done" | "error" | "aborted";
 
-// ── Outgoing WebSocket messages ──
+export interface CreateJobRequest {
+  prompt: string;
+  model?: {
+    provider: string;
+    id: string;
+  };
+  thinkingLevel?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CreateJobResponse {
+  jobId: string;
+  status: JobStatus;
+}
+
+export interface JobEvent {
+  id: number;
+  event: "status" | "agentEvent" | "stateSync" | "done" | "error" | "aborted";
+  data: unknown;
+  createdAt: string;
+}
+
+export interface JobInfo {
+  id: string;
+  status: JobStatus;
+  createdAt: string;
+  updatedAt: string;
+  prompt: string;
+  metadata?: Record<string, unknown>;
+  result?: unknown;
+  error?: string;
+  eventCount: number;
+}
+
+// ── Legacy-compatible model/state payloads ──
 
 export interface ModelInfo {
   provider: string;
