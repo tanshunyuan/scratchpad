@@ -1,6 +1,6 @@
-// ── Client → Server messages ──
+// ── Incoming WebSocket messages ──
 
-export type ClientMessage =
+export type IncomingMessage =
   | { type: "prompt"; text: string }
   | { type: "steer"; text: string }
   | { type: "followUp"; text: string }
@@ -13,7 +13,7 @@ export type ClientMessage =
   | { type: "getSessions" }
   | { type: "loadSession"; sessionPath: string };
 
-// ── Server → Client messages ──
+// ── Outgoing WebSocket messages ──
 
 export interface ModelInfo {
   provider: string;
@@ -32,7 +32,7 @@ export interface SessionListItem {
   firstMessage: string;
 }
 
-export type ServerMessage =
+export type OutgoingMessage =
   | { type: "agentEvent"; event: any }
   | { type: "stateSync"; state: SerializedAgentState }
   | { type: "models"; models: ModelInfo[]; current?: ModelInfo; thinkingLevel?: string }

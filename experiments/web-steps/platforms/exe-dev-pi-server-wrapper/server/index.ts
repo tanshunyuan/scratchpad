@@ -1,8 +1,6 @@
 import express from "express";
 import { createServer } from "http";
 import os from "os";
-import path from "path";
-import { fileURLToPath } from "url";
 import { WebSocketServer, WebSocket } from "ws";
 import {
   AuthStorage,
@@ -14,14 +12,13 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import type { Model, Api } from "@mariozechner/pi-ai";
 import type {
-  ClientMessage,
-  ServerMessage,
+  IncomingMessage,
+  OutgoingMessage,
   ModelInfo,
   SerializedAgentState,
   SessionListItem,
 } from "../shared/protocol.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "3001");
 const LITELLM_URL = process.env.LITELLM_URL || "http://192.168.50.240:4000";
 let litellmKey = process.env.LITELLM_KEY || "";
@@ -30,11 +27,8 @@ const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: "/api/ws" });
 
-// Serve static client files in production
-const clientDist = path.resolve(__dirname, "../dist");
-app.use(express.static(clientDist));
-app.get("/{*path}", (_req, res) => {
-  res.sendFile(path.join(clientDist, "client", "index.html"));
+app.get("/health", (_req, res) => {
+  res.json({ ok: true });
 });
 
 const HOME_DIR = os.homedir();
@@ -43,7 +37,7 @@ let session: AgentSession;
 let authStorage: AuthStorage;
 let modelRegistry: ModelRegistry;
 let sessionUnsubscribe: (() => void) | undefined;
-const clients = new Set<WebSocket>();
+const connections = new Set<WebSocket>();
 
 function modelToInfo(model: Model<Api>): ModelInfo {
   return {
@@ -69,7 +63,7 @@ function buildModelLookupCandidates(provider: string, modelId: string): Array<{ 
     candidates.push({ provider: p, modelId: id });
   };
 
-  // Exact pair from client message first.
+  // Exact pair from incoming message first.
   add(normalizedProvider, normalizedModelId);
 
   // Handle merged identifiers like provider=ollama/local and modelId=Qwen...
@@ -83,7 +77,7 @@ function buildModelLookupCandidates(provider: string, modelId: string): Array<{ 
     add("ollama", normalizedModelId.slice("ollama/".length));
   }
 
-  // Best-effort fallback for Ollama if client sent bare model name.
+  // Best-effort fallback for Ollama if incoming message used bare model name.
   if (normalizedProvider === "ollama" && !normalizedModelId.includes("/")) {
     add("ollama", `local/${normalizedModelId}`);
   }
@@ -107,16 +101,16 @@ function serializeState(): SerializedAgentState {
   };
 }
 
-function broadcast(msg: ServerMessage) {
+function broadcast(msg: OutgoingMessage) {
   const data = JSON.stringify(msg);
-  for (const client of clients) {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(data);
+  for (const connection of connections) {
+    if (connection.readyState === WebSocket.OPEN) {
+      connection.send(data);
     }
   }
 }
 
-function send(ws: WebSocket, msg: ServerMessage) {
+function send(ws: WebSocket, msg: OutgoingMessage) {
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(msg));
   }
@@ -201,7 +195,7 @@ function setupSessionEvents() {
   });
 }
 
-async function handleClientMessage(ws: WebSocket, msg: ClientMessage) {
+async function handleIncomingMessage(ws: WebSocket, msg: IncomingMessage) {
   try {
     switch (msg.type) {
       case "prompt": {
@@ -362,29 +356,29 @@ async function main() {
   setupSessionEvents();
 
   wss.on("connection", (ws) => {
-    clients.add(ws);
-    console.log(`Client connected (${clients.size} total)`);
+    connections.add(ws);
+    console.log(`WebSocket connected (${connections.size} total)`);
 
     send(ws, { type: "ready" });
     send(ws, { type: "stateSync", state: serializeState() });
 
     ws.on("message", (data) => {
       try {
-        const msg = JSON.parse(data.toString()) as ClientMessage;
-        handleClientMessage(ws, msg);
+        const msg = JSON.parse(data.toString()) as IncomingMessage;
+        handleIncomingMessage(ws, msg);
       } catch (err) {
         console.error("Invalid message:", err);
       }
     });
 
     ws.on("close", () => {
-      clients.delete(ws);
-      console.log(`Client disconnected (${clients.size} total)`);
+      connections.delete(ws);
+      console.log(`WebSocket disconnected (${connections.size} total)`);
     });
   });
 
   server.listen(PORT, () => {
-    console.log(`Pi WebUI server listening on http://localhost:${PORT}`);
+    console.log(`Pi server wrapper listening on http://localhost:${PORT}`);
   });
 }
 
