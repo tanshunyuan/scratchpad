@@ -40,13 +40,16 @@ const PENPOT_AGENT_INSTRUCTIONS = [
 
 function buildPrompt(input: { designSystemText: string }) {
   return [
-    "Create one simple Penpot artboard named `Design System Color Swatches`.",
+    "Inspect the already-open Penpot document first.",
+    "If an artboard named `Design System Color Swatches` already exists, do not create a new one.",
+    "When an existing artboard is found, return that artboard's real id and name, then export that artboard.",
+    "Only create one simple Penpot artboard named `Design System Color Swatches` if no matching artboard exists.",
     "Do not open or create another Penpot document.",
-    "Use the design-system tokens below as the only color source.",
+    "Use the design-system tokens below as the only color source when creating a new artboard.",
     "Layout: clean white/neutral artboard, title, short subtitle, grid of swatches.",
     "Each swatch must show token name, hex value, and short usage note when present.",
     "Use readable text and enough spacing. Keep it simple.",
-    "When finished, get the real artboard id and name from Penpot.",
+    "When finished or when reusing an existing artboard, get the real artboard id and name from Penpot.",
     "Then call mcp__penpot__export_shape with:",
     "- shapeId: real artboard id",
     "- format: png",
@@ -77,18 +80,33 @@ export async function run({
   init,
   payload,
   env,
+  log,
 }: FlueContext<Payload, Env>) {
+  const designSystemText = payload.designSystemText ?? DESIGN_SYSTEM_COLORS;
+
+  log.info("penpot-simple started", {
+    hasCustomDesignSystemText: Boolean(payload.designSystemText),
+    designSystemTextChars: designSystemText.length,
+  });
+
   const penpot = await connectMcpServer("penpot", {
     url: env.PENPOT_MCP_URL,
     timeoutMs: 120_000,
   });
 
+  log.info("penpot MCP connected", {
+    tools: penpot.tools.map((tool) => tool.name),
+  });
+
   try {
     const harness = await init(agent, { tools: penpot.tools });
     const session = await harness.session();
+
+    log.info("prompting Penpot agent");
+
     const response = await session.prompt(
       buildPrompt({
-        designSystemText: payload.designSystemText ?? DESIGN_SYSTEM_COLORS,
+        designSystemText,
       }), {
         result: v.object({
           artboard_id: v.string(),
@@ -98,8 +116,22 @@ export async function run({
       }
     );
 
+    log.info("penpot-simple completed", {
+      artboardId: response.data.artboard_id,
+      imageChars: response.data.image.length,
+      tokens: response.usage.totalTokens,
+      cost: response.usage.cost.total,
+    });
+
     return response.data
+  } catch (error) {
+    log.error("penpot-simple failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    throw error;
   } finally {
     await penpot.close();
+    log.info("penpot MCP closed");
   }
 }
