@@ -2,6 +2,7 @@
   "name": "server-flue",
   "version": "1.0.0",
   "description": "",
+  "type": "module",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -16,6 +17,7 @@
     "valibot": "^1.4.1"
   },
   "devDependencies": {
-    "@flue/cli": "1.0.0-beta.1"
+    "@flue/cli": "1.0.0-beta.1",
+    "@types/node": "^25.9.3"
   }
 }

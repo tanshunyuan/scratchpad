@@ -54,7 +54,8 @@ function buildPrompt(input: { designSystemText: string }) {
     "- shapeId: real artboard id",
     "- format: png",
     "- mode: shape",
-    "Final answer must include artboard id, artboard name, and the export_shape image response exactly as returned by the tool.",
+    "Final answer must include artboard id, artboard name, and a short note only.",
+    "Do not include image data in final answer. The MCP adapter only exposes image placeholders to you.",
     "Do not skip export.",
     "",
     "## Design system colors",
@@ -89,6 +90,11 @@ export async function run({
     designSystemTextChars: designSystemText.length,
   });
 
+  console.info("penpot-simple started", {
+    hasCustomDesignSystemText: Boolean(payload.designSystemText),
+    designSystemTextChars: designSystemText.length,
+  });
+
   const penpot = await connectMcpServer("penpot", {
     url: env.PENPOT_MCP_URL,
     timeoutMs: 120_000,
@@ -98,11 +104,16 @@ export async function run({
     tools: penpot.tools.map((tool) => tool.name),
   });
 
+  console.info("penpot MCP connected", {
+    tools: penpot.tools.map((tool) => tool.name),
+  });
+
   try {
     const harness = await init(agent, { tools: penpot.tools });
     const session = await harness.session();
 
     log.info("prompting Penpot agent");
+    console.info("prompting Penpot agent");
 
     const response = await session.prompt(
       buildPrompt({
@@ -110,15 +121,22 @@ export async function run({
       }), {
         result: v.object({
           artboard_id: v.string(),
-          image: v.string(),
+          artboard_name: v.string(),
           note: v.string()
         })
       }
     );
 
+
     log.info("penpot-simple completed", {
       artboardId: response.data.artboard_id,
-      imageChars: response.data.image.length,
+      artboardName: response.data.artboard_name,
+      tokens: response.usage.totalTokens,
+      cost: response.usage.cost.total,
+    });
+    console.info("penpot-simple completed", {
+      artboardId: response.data.artboard_id,
+      artboardName: response.data.artboard_name,
       tokens: response.usage.totalTokens,
       cost: response.usage.cost.total,
     });
@@ -128,10 +146,14 @@ export async function run({
     log.error("penpot-simple failed", {
       error: error instanceof Error ? error.message : String(error),
     });
+    console.error("penpot-simple failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
 
     throw error;
   } finally {
     await penpot.close();
     log.info("penpot MCP closed");
+    console.info("penpot MCP closed");
   }
 }
