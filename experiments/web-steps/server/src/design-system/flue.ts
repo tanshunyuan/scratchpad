@@ -2,7 +2,7 @@ import { createFlueClient } from "@flue/sdk";
 import { z } from "zod";
 import { env } from "../../env.js";
 
-const FluePenpotSimpleResultSchema = z.object({
+export const FluePenpotSimpleResultSchema = z.object({
   artboard_id: z.string().min(1),
   artboard_name: z.string().min(1),
   note: z.string().optional(),
@@ -13,12 +13,20 @@ const FluePenpotSimpleResultSchema = z.object({
   }),
 });
 
+export type FluePenpotSimpleResult = z.infer<
+  typeof FluePenpotSimpleResultSchema
+>;
+
+export function createFlueDesignSystemClient() {
+  return createFlueClient({
+    baseUrl: env.FLUE_BASE_URL,
+  });
+}
+
 export async function runPenpotSimpleExport(input: {
   designSystemText: string;
 }) {
-  const client = createFlueClient({
-    baseUrl: env.FLUE_BASE_URL ?? 'http://localhost:3583',
-  });
+  const client = createFlueDesignSystemClient();
 
   const result = await client.workflows.invoke("penpot-simple", {
     payload: {

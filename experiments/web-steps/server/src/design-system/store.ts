@@ -12,6 +12,7 @@ type DesignSystemGeneration = {
   projectId: string;
   createdAt: string;
   result: GenerateDesignSystemResult;
+  logs?: string[];
 };
 
 type DesignSystemDb = {
@@ -30,12 +31,14 @@ export async function saveDesignSystemGeneration(input: {
   id?: string;
   request: GenerateDesignSystemInput;
   result: GenerateDesignSystemResult;
+  logs?: string[];
 }) {
   const generation: DesignSystemGeneration = {
     id: input.id ?? randomUUID(),
     projectId: input.request.projectId,
     createdAt: new Date().toISOString(),
     result: input.result,
+    logs: input.logs,
   };
 
   await db.update(({ generations }) => {

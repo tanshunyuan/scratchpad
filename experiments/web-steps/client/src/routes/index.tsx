@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { env } from "../env";
 import { axiosInstance } from "../lib/axios";
 
 export const Route = createFileRoute("/")({
@@ -12,6 +13,7 @@ type DesignSystemGeneration = {
   projectId: string;
   createdAt: string;
   result: GenerateDesignSystemResult;
+  logs?: string[];
 };
 
 type GenerateDesignSystemResult = {
@@ -29,17 +31,10 @@ type GenerateDesignSystemResult = {
   };
 };
 
-const runningStatusLog = [
-  "loading PRD + UL",
-  "generating design system",
-  "creating Penpot board",
-  "exporting preview",
-];
-
 function Index() {
   const [result, setResult] = useState<GenerateDesignSystemResult | null>(null);
   const [generations, setGenerations] = useState<DesignSystemGeneration[]>([]);
-  const [statusLog, setStatusLog] = useState<string[]>([]);
+  const [currentLogs, setCurrentLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -55,41 +50,74 @@ function Index() {
     setGenerations(response.data.generations);
   }
 
-  async function generateDesignSystem() {
+  function generateDesignSystem() {
+    if (isGenerating) {
+      return;
+    }
+
     setIsGenerating(true);
     setResult(null);
     setError(null);
-    setStatusLog(runningStatusLog);
+    setCurrentLogs(["connecting to generation stream"]);
 
-    try {
-      const response = await axiosInstance.post<DesignSystemGeneration>(
-        "/api/design-system/generate",
-        { projectId: "demo-project" },
-      );
+    const streamUrl = new URL(
+      "/api/design-system/generate/stream",
+      env.VITE_SERVER_URL,
+    );
+    streamUrl.searchParams.set("projectId", "demo-project");
 
-      setResult(response.data.result);
+    const source = new EventSource(streamUrl.toString());
+    let receivedTerminalEvent = false;
+
+    source.addEventListener("progress", (event) => {
+      const data = JSON.parse(event.data) as { message?: string };
+
+      const message = data.message;
+
+      if (!message) {
+        return;
+      }
+
+      setCurrentLogs((logs) => [...logs, message]);
+    });
+
+    source.addEventListener("result", (event) => {
+      receivedTerminalEvent = true;
+      const data = JSON.parse(event.data) as {
+        generation: DesignSystemGeneration;
+      };
+
+      setResult(data.generation.result);
       setGenerations((currentGenerations) => [
-        response.data,
+        data.generation,
         ...currentGenerations,
       ]);
-      setStatusLog([...runningStatusLog, "done"]);
-    } catch (caughtError) {
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : "Failed to generate design system",
-      );
-      setStatusLog([...runningStatusLog, "failed"]);
-    } finally {
+      setCurrentLogs([]);
       setIsGenerating(false);
-    }
-  }
+      source.close();
+    });
 
-  const previewSrc = result?.preview?.imageUrl
-    ? result.preview.imageUrl
-    : result?.preview?.imageBase64
-      ? `data:${result.preview.mimeType};base64,${result.preview.imageBase64}`
-      : undefined;
+    source.addEventListener("failed", (event) => {
+      receivedTerminalEvent = true;
+      const data = JSON.parse(event.data) as { error?: string };
+
+      setError(data.error ?? "Generation failed");
+      setCurrentLogs((logs) => [...logs, "failed"]);
+      setIsGenerating(false);
+      source.close();
+    });
+
+    source.onerror = () => {
+      if (receivedTerminalEvent) {
+        return;
+      }
+
+      setError("Generation stream disconnected");
+      setCurrentLogs((logs) => [...logs, "stream disconnected"]);
+      setIsGenerating(false);
+      source.close();
+    };
+  }
 
   return (
     <main className="min-h-screen w-full bg-slate-50 p-6 text-slate-950">
@@ -99,112 +127,127 @@ function Index() {
           <h1 className="text-3xl font-semibold">Design Step</h1>
         </header>
 
-        <div className="rounded-xl border bg-white p-5 shadow-sm">
-          <Button onClick={generateDesignSystem} disabled={isGenerating}>
-            {isGenerating ? "Generating..." : "Generate Design System"}
-          </Button>
-        </div>
-
         <section className="rounded-xl border bg-white p-5 shadow-sm">
-          <h2 className="mb-3 text-xl font-semibold">Saved generations</h2>
-          {generations.length === 0 ? (
-            <p className="text-slate-500">No saved generations yet.</p>
-          ) : (
-            <ul className="space-y-3">
-              {generations.map((generation) => (
-                <li
-                  className="flex items-center justify-between gap-4 rounded-lg border p-3"
-                  key={generation.id}
-                >
-                  <div>
-                    <p className="font-medium">
-                      {generation.result.penpot.boardName}
-                    </p>
-                    <p className="text-sm text-slate-500">
-                      {new Date(generation.createdAt).toLocaleString()}
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setResult(generation.result)}
-                  >
-                    View
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="rounded-xl border bg-white p-5 shadow-sm">
-          <h2 className="mb-3 text-xl font-semibold">Status log</h2>
-          {statusLog.length === 0 ? (
-            <p className="text-slate-500">No run yet.</p>
-          ) : (
-            <ul className="space-y-2">
-              {statusLog.map((status) => (
-                <li key={status}>- {status}</li>
-              ))}
-            </ul>
-          )}
-          {error ? <p className="mt-4 text-red-600">{error}</p> : null}
-        </section>
-
-        {result ? (
-          <section className="grid gap-6 lg:grid-cols-[1fr_360px]">
-            <div className="rounded-xl border bg-white p-5 shadow-sm">
-              <h2 className="mb-3 text-xl font-semibold">
-                1. Generated design-system text
-              </h2>
-              <pre className="whitespace-pre-wrap rounded-lg bg-slate-950 p-4 text-sm text-slate-50">
-                {result.designSystemText}
-              </pre>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold">Generate design system</h2>
+              <p className="text-sm text-slate-500">
+                Streams Flue progress while Penpot board export runs.
+              </p>
             </div>
+            <Button onClick={generateDesignSystem} disabled={isGenerating}>
+              {isGenerating ? "Generating..." : "Generate"}
+            </Button>
+          </div>
+          {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
+        </section>
 
-            <aside className="flex flex-col gap-6">
-              <div className="rounded-xl border bg-white p-5 shadow-sm">
-                <h2 className="mb-3 text-xl font-semibold">2. Penpot info</h2>
-                <dl className="space-y-2 text-sm">
-                  <div>
-                    <dt className="font-medium text-slate-500">File ID</dt>
-                    <dd>{result.penpot.fileId}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-medium text-slate-500">Board ID</dt>
-                    <dd>{result.penpot.boardId}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-medium text-slate-500">Board name</dt>
-                    <dd>{result.penpot.boardName}</dd>
-                  </div>
-                  {result.penpot.boardUrl ? (
-                    <div>
-                      <dt className="font-medium text-slate-500">Board URL</dt>
-                      <dd>
-                        <a href={result.penpot.boardUrl}>{result.penpot.boardUrl}</a>
-                      </dd>
-                    </div>
-                  ) : null}
-                </dl>
-              </div>
+        <section className="rounded-xl border bg-white p-5 shadow-sm">
+          <h2 className="mb-4 text-xl font-semibold">Run logs</h2>
 
-              <div className="rounded-xl border bg-white p-5 shadow-sm">
-                <h2 className="mb-3 text-xl font-semibold">3. Preview image</h2>
-                {previewSrc ? (
-                  <img
-                    className="w-full rounded-lg border"
-                    src={previewSrc}
-                    alt="Penpot board preview"
-                  />
-                ) : (
-                  <p>No preview returned.</p>
-                )}
-              </div>
-            </aside>
-          </section>
-        ) : null}
+          {currentLogs.length > 0 ? (
+            <RunLogCard
+              title="Current run"
+              logs={currentLogs}
+              result={result}
+              isActive={isGenerating}
+            />
+          ) : null}
+
+          {generations.length === 0 && currentLogs.length === 0 ? (
+            <p className="text-slate-500">No runs yet.</p>
+          ) : (
+            <div className="mt-4 flex flex-col gap-4">
+              {generations.map((generation) => (
+                <RunLogCard
+                  key={generation.id}
+                  title={generation.result.penpot.boardName}
+                  createdAt={generation.createdAt}
+                  logs={generation.logs ?? ["No streamed logs saved for this run."]}
+                  result={generation.result}
+                />
+              ))}
+            </div>
+          )}
+        </section>
       </section>
     </main>
   );
+}
+
+function RunLogCard(input: {
+  title: string;
+  createdAt?: string;
+  logs: string[];
+  result: GenerateDesignSystemResult | null;
+  isActive?: boolean;
+}) {
+  const previewSrc = getPreviewSrc(input.result);
+
+  return (
+    <article className="rounded-lg border p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold">{input.title}</h3>
+            {input.isActive ? (
+              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                running
+              </span>
+            ) : null}
+          </div>
+          {input.createdAt ? (
+            <p className="text-sm text-slate-500">
+              {new Date(input.createdAt).toLocaleString()}
+            </p>
+          ) : null}
+        </div>
+
+        {previewSrc ? (
+          <img
+            className="h-24 w-36 rounded-md border object-cover"
+            src={previewSrc}
+            alt="Penpot board preview"
+          />
+        ) : null}
+      </div>
+
+      {input.result ? (
+        <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="font-medium text-slate-500">Board</dt>
+            <dd>{input.result.penpot.boardName}</dd>
+          </div>
+          <div>
+            <dt className="font-medium text-slate-500">Board ID</dt>
+            <dd className="break-all">{input.result.penpot.boardId}</dd>
+          </div>
+        </dl>
+      ) : null}
+
+      <ol className="mt-4 space-y-2 text-sm text-slate-700">
+        {input.logs.map((log, index) => (
+          <li className="rounded-md bg-slate-50 px-3 py-2" key={`${log}-${index}`}>
+            {log}
+          </li>
+        ))}
+      </ol>
+    </article>
+  );
+}
+
+function getPreviewSrc(result: GenerateDesignSystemResult | null) {
+  if (!result?.preview) {
+    return undefined;
+  }
+
+  if (result.preview.imageUrl) {
+    return result.preview.imageUrl;
+  }
+
+  if (result.preview.imageBase64) {
+    return `data:${result.preview.mimeType};base64,${result.preview.imageBase64}`;
+  }
+
+  return undefined;
 }
