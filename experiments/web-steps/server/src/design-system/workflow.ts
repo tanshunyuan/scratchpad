@@ -1,12 +1,8 @@
-import { createOpenAI } from "@ai-sdk/openai";
-import { Agent } from "@mastra/core/agent";
 import { Mastra } from "@mastra/core/mastra";
 import { createStep, createWorkflow } from "@mastra/core/workflows";
-import { MCPClient } from "@mastra/mcp";
 import { z } from "zod";
-import { env } from "../../env.js";
+import { runPenpotSimpleExport } from "./flue.js";
 import { logDesignSystem } from "./log.js";
-import { exportPenpotBoardPreview } from "./penpot.js";
 import {
   GenerateDesignSystemInputSchema,
   GenerateDesignSystemResultSchema,
@@ -16,10 +12,6 @@ import {
   type GenerateDesignSystemInput,
   type GenerateDesignSystemResult,
 } from "./types.js";
-
-const openai = createOpenAI({
-  apiKey: env.OPENAI_API_KEY,
-});
 
 const ContextEnvelopeSchema = z.object({
   projectId: z.string(),
@@ -43,7 +35,7 @@ const loadContext = createStep({
   inputSchema: GenerateDesignSystemInputSchema,
   outputSchema: ContextEnvelopeSchema,
   execute: async ({ inputData }) => {
-    logDesignSystem("step 1/5 loading PRD + UL", {
+    logDesignSystem("step 1/4 loading PRD + UL", {
       projectId: inputData.projectId,
     });
 
@@ -65,7 +57,7 @@ const loadContext = createStep({
       ].join("\n"),
     };
 
-    logDesignSystem("step 1/5 loaded PRD + UL", {
+    logDesignSystem("step 1/4 loaded PRD + UL", {
       prdChars: context.prd.length,
       ubiquitousLanguageChars: context.ubiquitousLanguage.length,
     });
@@ -82,7 +74,7 @@ const generateDesignSystemTextStep = createStep({
   inputSchema: ContextEnvelopeSchema,
   outputSchema: DesignTextEnvelopeSchema,
   execute: async ({ inputData }) => {
-    logDesignSystem("step 2/5 using existing design-system text");
+    logDesignSystem("step 2/4 using existing design-system text");
 
     const designSystemText = `# Web Steps — Mini Design System
 
@@ -277,7 +269,7 @@ Example tone patterns:
 - Define domain language
 - Generate design system`;
 
-    logDesignSystem("step 2/5 loaded existing design-system text", {
+    logDesignSystem("step 2/4 loaded existing design-system text", {
       chars: designSystemText.length,
     });
 
@@ -291,178 +283,35 @@ Example tone patterns:
 const createPenpotBoard = createStep({
   id: "createPenpotBoard",
   inputSchema: DesignTextEnvelopeSchema,
-  outputSchema: PenpotEnvelopeSchema,
+  outputSchema: PreviewEnvelopeSchema,
   execute: async ({ inputData }) => {
-    logDesignSystem("step 3/5 creating Penpot board", {
-      model: env.OPENAI_MODEL,
+    logDesignSystem("step 3/4 invoking Flue penpot-simple", {
       chars: inputData.designSystemText.length,
     });
 
-    const penpotMcpClient = new MCPClient({
-      id: "penpot-design-system-mcp-client",
-      servers: {
-        penpot: {
-          url: new URL(env.PENPOT_MCP_URL),
-        },
-      },
+    const result = await runPenpotSimpleExport({
+      designSystemText: inputData.designSystemText,
     });
 
-    try {
-      logDesignSystem("MCP loading Penpot tools");
-      const tools = await penpotMcpClient.listTools();
-
-      logDesignSystem("MCP loaded Penpot tools", {
-        tools: tools
-      });
-
-      const agent = new Agent({
-        id: "design-system-penpot-agent",
-        name: "Design System Penpot Agent",
-        model: openai(env.OPENAI_MODEL),
-        instructions: [
-          "Use the Penpot MCP tools to inspect, write, and verify the open document.",
-        ].join("\n"),
-        tools: tools
-      });
-
-      const result = await agent.generate(
-        [
-          "Create or reuse one Design System reference board inside the already-open Penpot document.",
-          "Do not create, launch, or reopen another document.",
-          "The open Penpot session is the only write target and verification surface.",
-          "",
-          "## Design System",
-          "<design-system>",
-          inputData.designSystemText,
-          "</design-system>",
-          "",
-          "## Task sequence",
-          "Work through these steps in order. Do not skip ahead or simulate completion.",
-          "",
-          "1. Inspect the open document and look for an existing top-level landscape board that already serves as a design-system reference board.",
-          "   If one exists and still reflects the current design-system intent, reuse it.",
-          "   Otherwise, create one board from the markdown.",
-          "",
-          "2. Build the board using the design-system content as the sole source of truth.",
-          "   Derive structure and styling from the markdown. Do not hardcode assumptions.",
-          "   If a section is missing from the markdown, omit it gracefully.",
-          "",
-          "3. Verify the board in Penpot. If something is visually broken, fix it before finishing.",
-          "",
-          "4. Read the document and retrieve the real id and name of the board.",
-          "   Do not invent or guess these values.",
-          "",
-          "## Section order and priority",
-          "All tiers are required when supported by the markdown. If space is constrained, extend the board height vertically.",
-          "",
-          "Tier 1: Header, Color system, Typography. Always include.",
-          "Tier 2: Spacing, Foundations. Include if defined in the markdown.",
-          "Tier 3: Core components, Applied patterns. Include if markdown supports it.",
-          "",
-          "## Board setup",
-          "- One top-level landscape board/frame.",
-          "- Fixed width and variable height; extend vertically as needed to avoid clipping.",
-          "- Column-based internal layout with sections as direct children.",
-          "- Clear typographic hierarchy.",
-          "- Spacing via layout gap and padding, not manual coordinate offsets when avoidable.",
-          "- Clip content at the board boundary.",
-          "",
-          "## Section specifications",
-          "Header: design-system name, one-line tone or product summary from markdown, optional subtle background or border.",
-          "Color system: semantic color tokens, swatches, hex values, usage notes. Preserve semantic names from markdown.",
-          "Typography: render type steps as actual text objects with correct family, size, weight, and line height when defined.",
-          "Spacing: show spacing as physical gaps, not only text tables. Include contextual examples if defined.",
-          "Foundations: compact examples for radius, borders, surfaces, focus rings, and other foundational tokens if defined.",
-          "Core components: only components supported or strongly implied by markdown. Show variants/states only when defined.",
-          "Applied patterns: lightweight pattern frames only when markdown has enough product context.",
-          "",
-          "## Legibility rules",
-          "- Prioritize legibility and scannability over completeness.",
-          "- Never compress specimens to fit more onto the board; reduce example count instead.",
-          "- No clipped text, cramped cards, or squished rows.",
-          "- Every section must be readable at normal zoom.",
-          "- Use representative specimens rather than exhaustive inventories.",
-          "",
-          "## Hard constraints",
-          "- One board only.",
-          "- Do not invent tokens, colors, or components not present in the markdown.",
-          "- Do not rename semantic tokens by their color value.",
-          "- Do not add dark mode unless the markdown defines it.",
-          "- Do not reduce typography or spacing sections to plain text token tables.",
-          "- Do not over-decorate the board.",
-          "- Do not simulate or mock completion; board ids must be real values retrieved from the document.",
-        ].join("\n"),
-        {
-          maxSteps: 12,
-          structuredOutput: {
-            schema: PenpotBoardInfoSchema,
-          },
-        },
-      );
-
-      const penpot = PenpotBoardInfoSchema.parse(result.object);
-
-      if (
-        penpot.fileId === "unknown" ||
-        penpot.boardId === "unknown" ||
-        penpot.boardName === "unknown"
-      ) {
-        throw new Error(
-          `Penpot board creation returned unknown identifiers: ${JSON.stringify(penpot)}`,
-        );
-      }
-
-      logDesignSystem("step 3/5 created Penpot board", {
-        fileId: penpot.fileId,
-        boardId: penpot.boardId,
-        boardName: penpot.boardName,
-      });
-
-      return {
-        ...inputData,
-        penpot,
-      };
-    } catch (error) {
-      logDesignSystem("step 3/5 failed to create Penpot board", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    } finally {
-      await penpotMcpClient.disconnect();
-    }
-  },
-});
-
-const exportPenpotPreview = createStep({
-  id: "exportPenpotPreview",
-  inputSchema: PenpotEnvelopeSchema,
-  outputSchema: PreviewEnvelopeSchema,
-  execute: async ({ inputData }) => {
-    if (true) {
-      logDesignSystem("step 4/5 skipped Penpot preview export", {
-        boardId: inputData.penpot.boardId,
-      });
-
-      return inputData;
-    }
-
-    logDesignSystem("step 4/5 exporting Penpot preview", {
-      boardId: inputData.penpot.boardId,
-    });
-
-    const preview = await exportPenpotBoardPreview({
-      boardId: inputData.penpot.boardId,
-    });
-
-    logDesignSystem("step 4/5 exported Penpot preview", {
-      mimeType: preview.mimeType,
-      hasImageUrl: Boolean(preview.imageUrl),
-      hasImageBase64: Boolean(preview.imageBase64),
+    logDesignSystem("step 3/4 Flue penpot-simple completed", {
+      boardId: result.artboard_id,
+      boardName: result.artboard_name,
+      hasImageUrl: Boolean(result.image.imageUrl),
+      imageChars: result.image.base64.length,
     });
 
     return {
       ...inputData,
-      preview,
+      penpot: {
+        fileId: "unknown",
+        boardId: result.artboard_id,
+        boardName: result.artboard_name,
+      },
+      preview: {
+        imageBase64: result.image.base64,
+        imageUrl: result.image.imageUrl,
+        mimeType: result.image.mimeType,
+      },
     };
   },
 });
@@ -472,7 +321,7 @@ const returnResult = createStep({
   inputSchema: PreviewEnvelopeSchema,
   outputSchema: GenerateDesignSystemResultSchema,
   execute: async ({ inputData }) => {
-    logDesignSystem("step 5/5 returning result");
+    logDesignSystem("step 4/4 returning result");
 
     return {
       designSystemText: inputData.designSystemText,
@@ -490,7 +339,6 @@ export const designSystemWorkflow = createWorkflow({
   .then(loadContext)
   .then(generateDesignSystemTextStep)
   .then(createPenpotBoard)
-  .then(exportPenpotPreview)
   .then(returnResult)
   .commit();
 

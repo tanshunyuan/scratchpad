@@ -13,6 +13,7 @@ export const env = createEnv({
     // OPENAI_MODEL: z.string().default("gpt-5.4-mini"),
     OPENAI_MODEL: z.string().default("gpt-5.4"),
     PENPOT_MCP_URL: z.url(),
+    FLUE_BASE_URL: z.url().default("http://localhost:3583"),
     DESIGN_SYSTEM_EXPORT_PREVIEW: z
       .enum(["true", "false"])
       .default("true")
