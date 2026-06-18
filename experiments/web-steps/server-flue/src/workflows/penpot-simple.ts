@@ -1,17 +1,21 @@
 import {
   connectMcpServer,
   createAgent,
+  defineAgentProfile,
   type FlueContext,
+  type ToolDefinition,
   type WorkflowRouteHandler,
 } from "@flue/runtime";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import * as v from 'valibot'
+import * as v from "valibot";
 
 export const route: WorkflowRouteHandler = async (_c, next) => next();
 
 export const description =
-  "Creates a simple Penpot artboard with design-system color swatches and exports it as PNG.";
+  "Creates or reuses a simple Penpot artboard with design-system color swatches and exports it as PNG.";
+
+const ARTBOARD_NAME = "Design System Color Swatches";
 
 const DESIGN_SYSTEM_COLORS = `# Web Steps color tokens
 
@@ -29,41 +33,45 @@ const DESIGN_SYSTEM_COLORS = `# Web Steps color tokens
 - --danger: #C94A4A — destructive and error states
 - --info: #3C7BEA — informational feedback`;
 
-const PENPOT_AGENT_INSTRUCTIONS = [
-  "You create simple Penpot boards.",
-  "Use the Penpot MCP tools only against the already-open document.",
-  "Useful tools:",
-  "- mcp__penpot__execute_code for Penpot Plugin API work.",
-  "Inside execute_code, use penpot.createBoard(), penpot.createRectangle(), and penpot.createText(text).",
-  "Do not use penpot.createShape. It does not exist.",
-  "Do not export images. Workflow code exports the final board after you return its id.",
-].join("\n");
-
-function buildPrompt(input: { designSystemText: string }) {
-  return [
-    "Inspect the already-open Penpot document first.",
-    "If an artboard named `Design System Color Swatches` already exists, do not create a new one.",
-    "When an existing artboard is found, return that artboard's real id and name.",
-    "Only create one simple Penpot artboard named `Design System Color Swatches` if no matching artboard exists.",
-    "Do not open or create another Penpot document.",
-    "Use the design-system tokens below as the only color source when creating a new artboard.",
-    "Layout: clean white/neutral artboard, title, short subtitle, grid of swatches.",
-    "Each swatch must show token name, hex value, and short usage note when present.",
-    "Use readable text and enough spacing. Keep it simple.",
-    "When finished or when reusing an existing artboard, get the real artboard id and name from Penpot.",
-    "Final answer must include artboard id, artboard name, and a short note only.",
-    "Do not export. Workflow code exports PNG after your final answer.",
-    "",
-    "## Design system colors",
-    input.designSystemText,
-  ].join("\n");
-}
-
-const agent = createAgent(() => ({
+const coordinator = createAgent(() => ({
   model: "openai/gpt-5.4-mini",
   thinkingLevel: "medium",
-  instructions: PENPOT_AGENT_INSTRUCTIONS,
 }));
+
+function createPenpotChecker(tools: ToolDefinition[]) {
+  return defineAgentProfile({
+    name: "penpot_checker",
+    description:
+      "Inspects the already-open Penpot document for an existing artboard.",
+    instructions: [
+      "You inspect Penpot documents.",
+      "Use the Penpot MCP tools only against the already-open document.",
+      "Useful tools:",
+      "- mcp__penpot__execute_code for Penpot Plugin API work.",
+      "Inspect only. Do not create, edit, delete, or export anything.",
+      "Return whether the requested artboard exists, plus its real id and name when found.",
+    ].join("\n"),
+    tools,
+  });
+}
+
+function createPenpotBuilder(tools: ToolDefinition[]) {
+  return defineAgentProfile({
+    name: "penpot_builder",
+    description:
+      "Creates the requested artboard in the already-open Penpot document.",
+    instructions: [
+      "You create simple Penpot boards.",
+      "Use the Penpot MCP tools only against the already-open document.",
+      "Useful tools:",
+      "- mcp__penpot__execute_code for Penpot Plugin API work.",
+      "Inside execute_code, use penpot.createBoard(), penpot.createRectangle(), and penpot.createText(text).",
+      "Do not use penpot.createShape. It does not exist.",
+      "Do not export images. Workflow code exports the final board after you return its id.",
+    ].join("\n"),
+    tools,
+  });
+}
 
 type Env = {
   PENPOT_MCP_URL: string;
@@ -91,6 +99,8 @@ async function exportShapeAsPng(input: {
 
   await client.connect(transport);
 
+  console.log("client ==> ", client);
+
   try {
     const result = await client.callTool({
       name: "export_shape",
@@ -100,6 +110,7 @@ async function exportShapeAsPng(input: {
         mode: "shape",
       },
     });
+    console.log("result ==> ", result);
 
     return extractPngImage(result);
   } finally {
@@ -129,7 +140,9 @@ function extractPngImage(result: unknown): PngImage {
       const resource = part.resource;
 
       if (resource.mimeType !== "image/png") {
-        throw new Error(`Expected PNG export, got ${String(resource.mimeType)}`);
+        throw new Error(
+          `Expected PNG export, got ${String(resource.mimeType)}`,
+        );
       }
 
       if (typeof resource.blob === "string") {
@@ -162,11 +175,13 @@ export async function run({
   const designSystemText = payload.designSystemText ?? DESIGN_SYSTEM_COLORS;
 
   log.info("penpot-simple started", {
+    artboardName: ARTBOARD_NAME,
     hasCustomDesignSystemText: Boolean(payload.designSystemText),
     designSystemTextChars: designSystemText.length,
   });
 
   console.info("penpot-simple started", {
+    artboardName: ARTBOARD_NAME,
     hasCustomDesignSystemText: Boolean(payload.designSystemText),
     designSystemTextChars: designSystemText.length,
   });
@@ -185,57 +200,128 @@ export async function run({
   });
 
   try {
-    const harness = await init(agent, { tools: penpot.tools });
+    const harness = await init(coordinator, {
+      subagents: [
+        createPenpotChecker(penpot.tools),
+        createPenpotBuilder(penpot.tools),
+      ],
+    });
     const session = await harness.session();
 
-    log.info("prompting Penpot agent");
-    console.info("prompting Penpot agent");
+    log.info("checking Penpot artboard", { artboardName: ARTBOARD_NAME });
+    console.info("checking Penpot artboard", { artboardName: ARTBOARD_NAME });
 
-    const response = await session.prompt(
-      buildPrompt({
-        designSystemText,
-      }), {
+    const check = await session.task(
+      [
+        "Inspect the already-open Penpot document.",
+        `Find an artboard named exactly \`${ARTBOARD_NAME}\`.`,
+        "Do not create, edit, delete, or export anything.",
+        "If found, return exists=true with the real artboard id and name from Penpot.",
+        "If not found, return exists=false and explain briefly in note.",
+      ].join("\n"),
+      {
+        agent: "penpot_checker",
         result: v.object({
-          artboard_id: v.string(),
-          artboard_name: v.string(),
-          note: v.string()
-        })
-      }
+          exists: v.boolean(),
+          artboard_id: v.optional(v.string()),
+          artboard_name: v.optional(v.string()),
+          note: v.string(),
+        }),
+      },
     );
 
+    let artboard = check.data.exists
+      ? {
+          artboard_id: check.data.artboard_id,
+          artboard_name: check.data.artboard_name,
+          note: check.data.note,
+          reused: true,
+        }
+      : undefined;
+
+    if (artboard) {
+      if (!artboard.artboard_id || !artboard.artboard_name) {
+        throw new Error("Penpot checker found artboard without id or name");
+      }
+
+      log.info("reusing Penpot artboard", {
+        artboardId: artboard.artboard_id,
+        artboardName: artboard.artboard_name,
+      });
+      console.info("reusing Penpot artboard", {
+        artboardId: artboard.artboard_id,
+        artboardName: artboard.artboard_name,
+      });
+    } else {
+      log.info("creating Penpot artboard", { artboardName: ARTBOARD_NAME });
+      console.info("creating Penpot artboard", { artboardName: ARTBOARD_NAME });
+
+      const built = await session.task(
+        [
+          "Create one simple Penpot artboard in the already-open document.",
+          `Artboard name: \`${ARTBOARD_NAME}\`.`,
+          "Before creating, do one final inspection. If the artboard already exists, reuse it and return its real id/name.",
+          "Do not open or create another Penpot document.",
+          "Use the design-system tokens below as the only color source when creating a new artboard.",
+          "Layout: clean white/neutral artboard, title, short subtitle, grid of swatches.",
+          "Each swatch must show token name, hex value, and short usage note when present.",
+          "Use readable text and enough spacing. Keep it simple.",
+          "When finished or when reusing an existing artboard, get the real artboard id and name from Penpot.",
+          "Final answer must include artboard id, artboard name, and a short note only.",
+          "Do not export. Workflow code exports PNG after your final answer.",
+          "",
+          "## Design system colors",
+          designSystemText,
+        ].join("\n"),
+        {
+          agent: "penpot_builder",
+          result: v.object({
+            artboard_id: v.string(),
+            artboard_name: v.string(),
+            note: v.string(),
+          }),
+        },
+      );
+
+      artboard = {
+        ...built.data,
+        reused: false,
+      };
+    }
+
     log.info("exporting Penpot PNG", {
-      artboardId: response.data.artboard_id,
+      artboardId: artboard.artboard_id,
+      reused: artboard.reused,
     });
     console.info("exporting Penpot PNG", {
-      artboardId: response.data.artboard_id,
+      artboardId: artboard.artboard_id,
+      reused: artboard.reused,
     });
 
     const image = await exportShapeAsPng({
       mcpUrl: env.PENPOT_MCP_URL,
-      shapeId: response.data.artboard_id,
+      shapeId: artboard.artboard_id,
     });
 
     const result = {
-      ...response.data,
+      ...artboard,
       image,
     };
 
     log.info("penpot-simple completed", {
       artboardId: result.artboard_id,
       artboardName: result.artboard_name,
+      reused: result.reused,
       imageChars: result.image.base64.length,
-      tokens: response.usage.totalTokens,
-      cost: response.usage.cost.total,
     });
     console.info("penpot-simple completed", {
       artboardId: result.artboard_id,
       artboardName: result.artboard_name,
+      reused: result.reused,
       imageChars: result.image.base64.length,
-      tokens: response.usage.totalTokens,
-      cost: response.usage.cost.total,
     });
 
-    return result
+    return result;
   } catch (error) {
     log.error("penpot-simple failed", {
       error: error instanceof Error ? error.message : String(error),
