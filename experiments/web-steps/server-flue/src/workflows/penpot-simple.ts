@@ -4,6 +4,8 @@ import {
   type FlueContext,
   type WorkflowRouteHandler,
 } from "@flue/runtime";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import * as v from 'valibot'
 
 export const route: WorkflowRouteHandler = async (_c, next) => next();
@@ -28,21 +30,20 @@ const DESIGN_SYSTEM_COLORS = `# Web Steps color tokens
 - --info: #3C7BEA — informational feedback`;
 
 const PENPOT_AGENT_INSTRUCTIONS = [
-  "You create simple Penpot boards and export images.",
+  "You create simple Penpot boards.",
   "Use the Penpot MCP tools only against the already-open document.",
   "Useful tools:",
   "- mcp__penpot__execute_code for Penpot Plugin API work.",
-  "- mcp__penpot__export_shape for PNG export.",
   "Inside execute_code, use penpot.createBoard(), penpot.createRectangle(), and penpot.createText(text).",
   "Do not use penpot.createShape. It does not exist.",
-  "After creating the artboard, always export the artboard with mcp__penpot__export_shape using format png and mode shape.",
+  "Do not export images. Workflow code exports the final board after you return its id.",
 ].join("\n");
 
 function buildPrompt(input: { designSystemText: string }) {
   return [
     "Inspect the already-open Penpot document first.",
     "If an artboard named `Design System Color Swatches` already exists, do not create a new one.",
-    "When an existing artboard is found, return that artboard's real id and name, then export that artboard.",
+    "When an existing artboard is found, return that artboard's real id and name.",
     "Only create one simple Penpot artboard named `Design System Color Swatches` if no matching artboard exists.",
     "Do not open or create another Penpot document.",
     "Use the design-system tokens below as the only color source when creating a new artboard.",
@@ -50,13 +51,8 @@ function buildPrompt(input: { designSystemText: string }) {
     "Each swatch must show token name, hex value, and short usage note when present.",
     "Use readable text and enough spacing. Keep it simple.",
     "When finished or when reusing an existing artboard, get the real artboard id and name from Penpot.",
-    "Then call mcp__penpot__export_shape with:",
-    "- shapeId: real artboard id",
-    "- format: png",
-    "- mode: shape",
     "Final answer must include artboard id, artboard name, and a short note only.",
-    "Do not include image data in final answer. The MCP adapter only exposes image placeholders to you.",
-    "Do not skip export.",
+    "Do not export. Workflow code exports PNG after your final answer.",
     "",
     "## Design system colors",
     input.designSystemText,
@@ -76,6 +72,86 @@ type Env = {
 type Payload = {
   designSystemText?: string;
 };
+
+type PngImage = {
+  mimeType: "image/png";
+  base64: string;
+  imageUrl: string;
+};
+
+async function exportShapeAsPng(input: {
+  mcpUrl: string;
+  shapeId: string;
+}): Promise<PngImage> {
+  const client = new Client({
+    name: "web-steps-penpot-export",
+    version: "1.0.0",
+  });
+  const transport = new StreamableHTTPClientTransport(new URL(input.mcpUrl));
+
+  await client.connect(transport);
+
+  try {
+    const result = await client.callTool({
+      name: "export_shape",
+      arguments: {
+        shapeId: input.shapeId,
+        format: "png",
+        mode: "shape",
+      },
+    });
+
+    return extractPngImage(result);
+  } finally {
+    await client.close();
+  }
+}
+
+function extractPngImage(result: unknown): PngImage {
+  if (!isObject(result) || !Array.isArray(result.content)) {
+    throw new Error("Penpot export returned invalid result");
+  }
+
+  for (const part of result.content) {
+    if (!isObject(part)) {
+      continue;
+    }
+
+    if (part.type === "image" && typeof part.data === "string") {
+      if (part.mimeType !== "image/png") {
+        throw new Error(`Expected PNG export, got ${String(part.mimeType)}`);
+      }
+
+      return buildPngImage(part.data);
+    }
+
+    if (part.type === "resource" && isObject(part.resource)) {
+      const resource = part.resource;
+
+      if (resource.mimeType !== "image/png") {
+        throw new Error(`Expected PNG export, got ${String(resource.mimeType)}`);
+      }
+
+      if (typeof resource.blob === "string") {
+        return buildPngImage(resource.blob);
+      }
+    }
+  }
+
+  throw new Error("Penpot export did not include PNG image data");
+}
+
+function buildPngImage(base64: string): PngImage {
+  return {
+    mimeType: "image/png",
+    base64,
+    imageUrl: `data:image/png;base64,${base64}`,
+  };
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
 export async function run({
   init,
@@ -127,21 +203,39 @@ export async function run({
       }
     );
 
+    log.info("exporting Penpot PNG", {
+      artboardId: response.data.artboard_id,
+    });
+    console.info("exporting Penpot PNG", {
+      artboardId: response.data.artboard_id,
+    });
+
+    const image = await exportShapeAsPng({
+      mcpUrl: env.PENPOT_MCP_URL,
+      shapeId: response.data.artboard_id,
+    });
+
+    const result = {
+      ...response.data,
+      image,
+    };
 
     log.info("penpot-simple completed", {
-      artboardId: response.data.artboard_id,
-      artboardName: response.data.artboard_name,
+      artboardId: result.artboard_id,
+      artboardName: result.artboard_name,
+      imageChars: result.image.base64.length,
       tokens: response.usage.totalTokens,
       cost: response.usage.cost.total,
     });
     console.info("penpot-simple completed", {
-      artboardId: response.data.artboard_id,
-      artboardName: response.data.artboard_name,
+      artboardId: result.artboard_id,
+      artboardName: result.artboard_name,
+      imageChars: result.image.base64.length,
       tokens: response.usage.totalTokens,
       cost: response.usage.cost.total,
     });
 
-    return response.data
+    return result
   } catch (error) {
     log.error("penpot-simple failed", {
       error: error instanceof Error ? error.message : String(error),
