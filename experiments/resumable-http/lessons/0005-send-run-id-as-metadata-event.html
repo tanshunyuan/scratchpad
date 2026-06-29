@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lesson 0005 — Send runId as a metadata event</title>
+  <style>
+    :root { --ink:#111; --muted:#666; --line:#ddd; --soft:#f7f7f7; --accent:#0f766e; }
+    body { margin:0; color:var(--ink); background:white; font:17px/1.6 ui-serif, Georgia, Cambria, serif; }
+    main { max-width: 860px; margin:48px auto; padding:0 24px 80px; }
+    h1 { font-size:2.1rem; line-height:1.1; letter-spacing:-.03em; margin:0; }
+    h2 { margin-top:34px; padding-top:18px; border-top:1px solid var(--line); font-size:1.2rem; }
+    code, pre { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:.9em; }
+    pre { background:var(--soft); padding:16px; overflow:auto; border-left:4px solid var(--accent); }
+    .muted { color:var(--muted); }
+    .task { border:1px solid var(--line); border-radius:12px; padding:16px; margin:14px 0; }
+    @media print { main { margin:20px auto; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Send <code>runId</code> as a metadata event</h1>
+  <p class="muted">Your server now uses <code>crypto.randomUUID()</code>. The client needs that ID before it can resume.</p>
+
+  <h2>Goal</h2>
+  <p>Keep the stream as the only response body. The first event tells the browser which run was created.</p>
+
+  <pre><code>id: 0
+data: {"type":"run","runId":"..."}
+
+id: 1
+data: {"type":"delta","delta":"token-1"}</code></pre>
+
+  <h2>Why metadata event?</h2>
+  <p>POST already returns a long-lived stream. Instead of returning separate JSON first, put control info inside the stream protocol. This is how richer AI stream protocols work: not every event is a token.</p>
+
+  <h2>Step 1 — widen event data</h2>
+  <p>Change your current <code>StreamEvent</code> type from “only delta” to a union:</p>
+
+  <pre><code>type StreamEvent = {
+  id: number;
+  data:
+    | { type: "run"; runId: string }
+    | { type: "delta"; delta: string };
+};</code></pre>
+
+  <h2>Step 2 — producer emits typed deltas</h2>
+  <p>Your <code>startProducer</code> loop currently emits <code>{ delta: ... }</code>. Make event type explicit:</p>
+
+  <pre><code>emit(run, { type: "delta", delta: `token-${id}` });</code></pre>
+
+  <h2>Step 3 — POST writes run metadata once</h2>
+  <p>After <code>attach</code>, write one metadata event directly to this POST response:</p>
+
+  <pre><code>attach(req, res, run, 0);
+
+writeEvent(res, {
+  id: 0,
+  data: { type: "run", runId: run.id },
+});
+
+runs.set(run.id, run);
+startProducer(run);</code></pre>
+
+  <div class="task">
+    <strong>Important:</strong> use <code>writeEvent</code>, not <code>emit</code>. Metadata should go only to the first POST response. It should not become part of replayed token history.
+  </div>
+
+  <h2>Step 4 — test with curl</h2>
+  <pre><code>curl -N -X POST http://localhost:8086/runs</code></pre>
+
+  <p>Copy the <code>runId</code>, stop curl after a few tokens, then resume:</p>
+
+  <pre><code>curl -N "http://localhost:8086/runs/&lt;runId&gt;/events?after=3"</code></pre>
+
+  <p>Expected: resumed GET does not replay <code>id: 0</code>. It replays token events after <code>3</code>, then follows live.</p>
+
+  <h2>Retrieval check</h2>
+  <ol>
+    <li>Why does the metadata event use <code>writeEvent</code> instead of <code>emit</code>?</li>
+    <li>Why is metadata event <code>id: 0</code> not saved in <code>run.events</code>?</li>
+    <li>After refresh, what two values does the browser need to resume?</li>
+  </ol>
+
+  <h2>Next</h2>
+  <p>After this works, build a tiny browser page. It will parse the POST stream, store <code>runId</code> and <code>lastEventId</code> in <code>localStorage</code>, then resume on reload.</p>
+
+  <p class="muted">Primary source: <a href="https://ai-sdk.dev/docs/ai-sdk-ui/chatbot-resume-streams">AI SDK Resume Streams</a>. Reference: <a href="../reference/resumable-http-streams.html">cheat sheet</a>.</p>
+</main>
+</body>
+</html>

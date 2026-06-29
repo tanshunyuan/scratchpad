@@ -1,12 +1,19 @@
 import http from "node:http";
 import crypto from "node:crypto";
 import { env } from "./env.js";
+import { readFile } from "node:fs/promises";
 
 type StreamEvent = {
   id: number;
-  data: {
-    delta: string;
-  };
+  data:
+    | {
+        type: "run";
+        runId: string;
+      }
+    | {
+        type: "delta";
+        delta: string;
+      };
 };
 
 type Run = {
@@ -15,6 +22,7 @@ type Run = {
   events: StreamEvent[];
   listeners: Set<http.ServerResponse>;
   done: boolean;
+  cancelled: boolean
 };
 
 const runs = new Map<Run["id"], Run>();
@@ -70,9 +78,11 @@ const attach = async (
 
 const startProducer = async (run: Run) => {
   for (let i = 0; i < 10; i++) {
+    if (run.cancelled) break;
+
     const id = i + 1;
-    emit(run, { delta: `token-${id}` });
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    emit(run, { type: "delta", delta: `token-${id}` });
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
   run.done = true;
   for (const listener of run.listeners) listener.end();
@@ -80,33 +90,61 @@ const startProducer = async (run: Run) => {
 };
 
 const server = http.createServer(async (req, res) => {
-  console.log(req.url);
   const parsedUrl = new URL(req.url!, `http://${env.HOST}:${env.PORT}`);
-  console.log(parsedUrl);
+
+  if (parsedUrl.pathname === "/" && req.method === "GET") {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(await readFile("client.html", "utf-8"));
+    return;
+  }
 
   if (parsedUrl.pathname === "/runs" && req.method === "POST") {
+    const runId = crypto.randomUUID();
     // start a run
     const run: Run = {
-      id: "1234",
+      id: runId,
       nextEventId: 1,
       events: [],
       listeners: new Set(),
       done: false,
+      cancelled: false
     };
     attach(req, res, run, 0);
+    writeEvent(res, { id: 0, data: { type: "run", runId } });
 
     runs.set(run.id, run);
     startProducer(run);
     return;
   }
 
-  const identifyPattern = new RegExp("\\/runs\\/\\d+\\/events");
+  const stopMatch = parsedUrl.pathname.match(/^\/runs\/([^/]+)\/stop$/);
 
-  if (identifyPattern.test(parsedUrl.pathname) && req.method === "GET") {
-    const id = parsedUrl.pathname.split("/")[2];
+  if (stopMatch && req.method === "POST") {
+    const id = stopMatch[1];
+    const run = id ? runs.get(id) : undefined;
+
+    if (!run) {
+      res.writeHead(404).end("run not found\n");
+      return;
+    }
+
+    run.cancelled = true;
+    run.done = true;
+
+    for (const listener of run.listeners) listener.end();
+    run.listeners.clear();
+
+    res.writeHead(204).end();
+    return;
+  }
+
+  const match = parsedUrl.pathname.match(/^\/runs\/([^/]+)\/events$/);
+
+  if (match && req.method === "GET") {
+    const id = match[1];
     const after = Number(parsedUrl.searchParams.get("after") ?? 0);
     if (!id || !runs.has(id)) {
-      res.end("cannot find lah");
+      res.writeHead(404).end("cannot find lah");
       return;
     }
     const run = runs.get(id)!;

@@ -4,3 +4,4 @@
 - User is unsure what resume cursor should be. Start with stream ID + event ID, not byte offsets.
 - Keep teaching in TypeScript + Node, small examples first.
 - User added repo at `code-examples/tiny-typescript-demo`; wants to implement themselves, so give exercises/checkpoints rather than writing repo code.
+- Current state: user built Node + browser demo with SSE framing, event log, listeners, UUID run metadata event, browser refresh resume, and stop endpoint.

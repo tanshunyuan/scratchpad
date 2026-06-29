@@ -1,0 +1,126 @@
+<!doctype html>
+<html>
+    <head>
+        <title>This is the title of the webpage!</title>
+    </head>
+    <body>
+        <button id="start">Start</button>
+        <button id="clear">Clear</button>
+        <button id="stop">Stop</button>
+        <pre id="output"></pre>
+    </body>
+    <script>
+        const state = {
+            get runId() {
+                return localStorage.getItem("runId");
+            },
+            set runId(value) {
+                localStorage.setItem("runId", value);
+            },
+            get lastEventId() {
+                return Number(localStorage.getItem("lastEventId") ?? 0);
+            },
+            set lastEventId(value) {
+                localStorage.setItem("lastEventId", String(value));
+            },
+        };
+
+        /**
+         * @example incomplete event
+         * text = "id: 3\ndata:"
+         * blocks = ["id: 3\ndata:"]
+         * pendingText = "id: 3\ndata:"
+         *
+         * @example complete event
+         * text = "id: 1\ndata: A\n\n"
+         * blocks = ["id: 1\ndata: A", ""]
+         * pendingText = ""
+         *
+         * @example two complete events plus partial event
+         * text = "id: 1\ndata: A\n\nid: 2\ndata: B\n\nid: 3\ndata:"
+         * blocks = ["id: 1\ndata: A", "id: 2\ndata: B", "id: 3\ndata:"]
+         * pendingText = "id: 3\ndata:"
+         * returnedBlocks = ["id: 1\ndata: A", "id: 2\ndata: B"]
+         */
+        let pendingText = "";
+        function parseEvents(text) {
+            pendingText += text;
+            // intermidiary variable to only process a block of buffer \n\n
+            const blocks = pendingText.split("\n\n");
+            pendingText = blocks.pop() ?? "";
+
+            return blocks.map((block) => {
+                const event = { id: 0, data: null };
+
+                for (const line of block.split("\n")) {
+                    if (line.startsWith("id: "))
+                        event.id = Number(line.slice(4));
+                    if (line.startsWith("data: "))
+                        event.data = JSON.parse(line.slice(6));
+                }
+
+                return event;
+            });
+        }
+
+        async function readStream(response) {
+            // fetch request always returns a readableStream!
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                for (const event of parseEvents(
+                    decoder.decode(value, { stream: true }),
+                )) {
+                    handleEvent(event);
+                }
+            }
+        }
+
+        function handleEvent(event) {
+            if (event.data.type === "run") {
+                state.runId = event.data.runId;
+                return;
+            }
+
+            if (event.data.type === "delta") {
+                state.lastEventId = event.id;
+                const output = document.getElementById("output");
+                output.textContent += event.data.delta + "\n";
+            }
+        }
+
+        const start = document.getElementById("start");
+        const clear = document.getElementById("clear");
+        const stop = document.getElementById("stop");
+
+        start.onclick = async () => {
+            localStorage.clear();
+            const response = await fetch("/runs", { method: "POST" });
+            await readStream(response);
+        };
+        clear.onclick = async () => {
+            localStorage.clear();
+            output.textContent = "";
+        };
+
+        stop.onclick = async () => {
+            const response = await fetch(`runs/${state.runId}/stop`, {
+                method: "POST",
+            });
+            localStorage.clear();
+        };
+
+        window.addEventListener("load", async () => {
+            if (!state.runId) return;
+            const response = await fetch(
+                `/runs/${state.runId}/events?after=${state.lastEventId}`,
+            );
+
+            if (response.ok) await readStream(response);
+        });
+    </script>
+</html>

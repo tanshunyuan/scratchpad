@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lesson 0006 — Browser client resumes after refresh</title>
+  <style>
+    :root { --ink:#111; --muted:#666; --line:#ddd; --soft:#f7f7f7; --accent:#0f766e; }
+    body { margin:0; color:var(--ink); background:white; font:17px/1.6 ui-serif, Georgia, Cambria, serif; }
+    main { max-width: 860px; margin:48px auto; padding:0 24px 80px; }
+    h1 { font-size:2.1rem; line-height:1.1; letter-spacing:-.03em; margin:0; }
+    h2 { margin-top:34px; padding-top:18px; border-top:1px solid var(--line); font-size:1.2rem; }
+    code, pre { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:.9em; }
+    pre { background:var(--soft); padding:16px; overflow:auto; border-left:4px solid var(--accent); }
+    .muted { color:var(--muted); }
+    .task { border:1px solid var(--line); border-radius:12px; padding:16px; margin:14px 0; }
+    @media print { main { margin:20px auto; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Browser client resumes after refresh</h1>
+  <p class="muted">Server works. Now make browser remember <code>runId</code> and <code>lastEventId</code>.</p>
+
+  <h2>Goal</h2>
+  <pre><code>Start button:
+  POST /runs
+  parse SSE events
+  save runId from type:"run"
+  save lastEventId from type:"delta"
+
+Page load:
+  if runId exists:
+    GET /runs/:runId/events?after=lastEventId
+    parse replay + live events</code></pre>
+
+  <h2>Add one static page</h2>
+  <p>Create <code>code-examples/tiny-typescript-demo/index.html</code>. Keep it boring:</p>
+
+  <pre><code>&lt;button id="start"&gt;Start&lt;/button&gt;
+&lt;button id="clear"&gt;Clear saved state&lt;/button&gt;
+&lt;pre id="output"&gt;&lt;/pre&gt;
+&lt;script type="module" src="/client.js"&gt;&lt;/script&gt;</code></pre>
+
+  <h2>Serve static files</h2>
+  <p>Add two simple GET routes before your 404:</p>
+
+  <pre><code>if (parsedUrl.pathname === "/" &amp;&amp; req.method === "GET") {
+  res.writeHead(200, { "content-type": "text/html" });
+  res.end(await readFile("index.html", "utf8"));
+  return;
+}
+
+if (parsedUrl.pathname === "/client.js" &amp;&amp; req.method === "GET") {
+  res.writeHead(200, { "content-type": "text/javascript" });
+  res.end(await readFile("client.js", "utf8"));
+  return;
+}</code></pre>
+
+  <p>You will need:</p>
+
+  <pre><code>import { readFile } from "node:fs/promises";</code></pre>
+
+  <h2>Client state</h2>
+  <pre><code>const state = {
+  get runId() { return localStorage.getItem("runId"); },
+  set runId(value) { localStorage.setItem("runId", value); },
+  get lastEventId() { return Number(localStorage.getItem("lastEventId") ?? 0); },
+  set lastEventId(value) { localStorage.setItem("lastEventId", String(value)); },
+};</code></pre>
+
+  <h2>Parsing rule</h2>
+  <p>The browser gives chunks, not neat SSE events. Your parser buffers text until it sees a blank line.</p>
+
+  <pre><code>let buffer = "";
+
+function parseEvents(text) {
+  buffer += text;
+  const blocks = buffer.split("\n\n");
+  buffer = blocks.pop() ?? "";
+
+  return blocks.map((block) =&gt; {
+    const event = { id: 0, data: null };
+
+    for (const line of block.split("\n")) {
+      if (line.startsWith("id: ")) event.id = Number(line.slice(4));
+      if (line.startsWith("data: ")) event.data = JSON.parse(line.slice(6));
+    }
+
+    return event;
+  });
+}</code></pre>
+
+  <h2>Stream reader shape</h2>
+  <pre><code>async function readStream(response) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    for (const event of parseEvents(decoder.decode(value, { stream: true }))) {
+      handleEvent(event);
+    }
+  }
+}</code></pre>
+
+  <h2>Event handling</h2>
+  <pre><code>function handleEvent(event) {
+  if (event.data.type === "run") {
+    state.runId = event.data.runId;
+    return;
+  }
+
+  if (event.data.type === "delta") {
+    state.lastEventId = event.id;
+    output.textContent += event.data.delta + "\n";
+  }
+}</code></pre>
+
+  <h2>Start and resume</h2>
+  <pre><code>start.onclick = async () =&gt; {
+  localStorage.clear();
+  const response = await fetch("/runs", { method: "POST" });
+  await readStream(response);
+};
+
+window.addEventListener("load", async () =&gt; {
+  if (!state.runId) return;
+
+  const response = await fetch(
+    `/runs/${state.runId}/events?after=${state.lastEventId}`,
+  );
+
+  if (response.ok) await readStream(response);
+});</code></pre>
+
+  <h2>Test</h2>
+  <ol>
+    <li>Open <code>http://localhost:8086</code>.</li>
+    <li>Click Start.</li>
+    <li>After 2-3 tokens, refresh page.</li>
+    <li>Expected: missed tokens replay, stream continues.</li>
+  </ol>
+
+  <h2>Retrieval check</h2>
+  <ol>
+    <li>Why does client store <code>lastEventId</code> only for delta events?</li>
+    <li>Why does parser split on <code>\n\n</code>?</li>
+    <li>What breaks if server restarts?</li>
+  </ol>
+
+  <p class="muted">Primary source: <a href="https://developer.mozilla.org/en-US/docs/Web/API/Streams_API/Using_readable_streams">MDN Readable Streams</a>. Reference: <a href="../reference/resumable-http-streams.html">cheat sheet</a>.</p>
+</main>
+</body>
+</html>
