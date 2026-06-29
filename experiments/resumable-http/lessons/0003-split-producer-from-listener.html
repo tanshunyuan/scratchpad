@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lesson 0003 — Split producer from listener</title>
+  <style>
+    :root { --ink:#111; --muted:#666; --line:#ddd; --soft:#f7f7f7; --accent:#0f766e; }
+    body { margin:0; color:var(--ink); background:white; font:17px/1.6 ui-serif, Georgia, Cambria, serif; }
+    main { max-width: 860px; margin:48px auto; padding:0 24px 80px; }
+    h1 { font-size:2.1rem; line-height:1.1; letter-spacing:-.03em; margin:0; }
+    h2 { margin-top:34px; padding-top:18px; border-top:1px solid var(--line); font-size:1.2rem; }
+    code, pre { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:.9em; }
+    pre { background:var(--soft); padding:16px; overflow:auto; border-left:4px solid var(--accent); }
+    .muted { color:var(--muted); }
+    .task { border:1px solid var(--line); border-radius:12px; padding:16px; margin:14px 0; }
+    @media print { main { margin:20px auto; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Split producer from listener</h1>
+  <p class="muted">Current code streams directly inside the request. Good first step. Resumable streams need one extra split.</p>
+
+  <h2>New mental model</h2>
+  <pre><code>producer = creates events over time
+listener = one HTTP response receiving events
+run      = event log + current listeners</code></pre>
+
+  <p>If listener dies, producer continues. That is the whole magic behind refresh-safe streams.</p>
+
+  <h2>Target API</h2>
+  <pre><code>POST /runs
+  create run
+  start producer
+  attach this response as first listener
+
+GET /runs/:id/events?after=3
+  replay stored events with id &gt; 3
+  attach this response for future events</code></pre>
+
+  <h2>Types to add</h2>
+  <pre><code>type StreamEvent = {
+  id: number;
+  data: { delta: string };
+};
+
+type Run = {
+  id: string;
+  nextEventId: number;
+  events: StreamEvent[];
+  clients: Set&lt;http.ServerResponse&gt;;
+  done: boolean;
+};
+
+const runs = new Map&lt;string, Run&gt;();</code></pre>
+
+  <h2>Functions to write</h2>
+  <div class="task">
+    <p><strong>1. <code>writeEvent(res, event)</code></strong></p>
+    <pre><code>res.write(`id: ${event.id}\n`);
+res.write(`data: ${JSON.stringify(event.data)}\n\n`);</code></pre>
+  </div>
+
+  <div class="task">
+    <p><strong>2. <code>emit(run, data)</code></strong></p>
+    <ul>
+      <li>create event with <code>run.nextEventId++</code></li>
+      <li>push into <code>run.events</code></li>
+      <li>write to every <code>run.clients</code></li>
+    </ul>
+  </div>
+
+  <div class="task">
+    <p><strong>3. <code>attach(req, res, run, after)</code></strong></p>
+    <ul>
+      <li>write SSE headers</li>
+      <li>replay matching events with <code>for (const event of run.events) if (event.id &gt; after) writeEvent(res, event)</code></li>
+      <li>if done, end response</li>
+      <li>else add response to <code>run.clients</code></li>
+      <li>on request close, remove response from <code>run.clients</code></li>
+    </ul>
+  </div>
+
+  <div class="task">
+    <p><strong>4. <code>startProducer(run)</code></strong></p>
+    <ul>
+      <li>loop 10 times</li>
+      <li>call <code>emit(run, { delta: `token-${i}` })</code></li>
+      <li>sleep 500ms</li>
+      <li>mark done</li>
+      <li>end all current clients</li>
+    </ul>
+  </div>
+
+  <h2>Self-check</h2>
+  <pre><code># terminal 1
+pnpm dev
+
+# terminal 2: starts run, copy id from first event/data/log
+curl -N -X POST http://localhost:8086/runs
+
+# terminal 3: resume after event 3
+curl -N "http://localhost:8086/runs/&lt;id&gt;/events?after=3"</code></pre>
+
+  <h2>Question before coding</h2>
+  <p>What object owns the event log: client, response, or run?</p>
+  <p><strong>Correction:</strong> filtering means “select events to replay”; do not assign it back to <code>run.events</code>. The event log belongs to the run and must stay intact.</p>
+
+  <p class="muted">Primary source: <a href="https://ai-sdk.dev/docs/ai-sdk-ui/chatbot-resume-streams">AI SDK Resume Streams</a>. Reference: <a href="../reference/resumable-http-streams.html">cheat sheet</a>.</p>
+</main>
+</body>
+</html>

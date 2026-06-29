@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Resumable HTTP Streams — Cheat Sheet</title>
+  <style>
+    :root { --ink:#111; --muted:#666; --line:#ddd; --accent:#0f766e; --bg:#fff; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 ui-serif, Georgia, Cambria, serif; }
+    main { max-width: 820px; margin: 48px auto; padding: 0 24px; }
+    h1 { font-size: 2rem; margin: 0 0 8px; letter-spacing: -0.02em; }
+    h2 { margin-top: 36px; border-top: 1px solid var(--line); padding-top: 18px; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em; }
+    pre { background: #f7f7f7; padding: 16px; overflow:auto; border-left: 4px solid var(--accent); }
+    .muted { color: var(--muted); }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .card { border: 1px solid var(--line); padding: 16px; border-radius: 10px; }
+    @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
+    @media print { main { margin: 20px auto; } a { color: var(--ink); } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Resumable HTTP Streams</h1>
+  <p class="muted">Core recipe for AI-style streaming in TypeScript.</p>
+
+  <h2>One-sentence model</h2>
+  <p><strong>POST starts work; server keeps work alive; GET resumes by replaying missed event IDs, then follows live output.</strong></p>
+
+  <h2>Pieces</h2>
+  <div class="grid">
+    <div class="card"><strong>runId / chatId</strong><br>Stable ID for current generation/session.</div>
+    <div class="card"><strong>eventId</strong><br>Monotonic cursor: 1, 2, 3… for chunks/events.</div>
+    <div class="card"><strong>event log</strong><br>Buffer/persist emitted chunks so reconnect can replay.</div>
+    <div class="card"><strong>live subscribers</strong><br>Open HTTP responses currently receiving new chunks.</div>
+  </div>
+
+  <h2>Flow</h2>
+  <pre><code>POST /runs
+  create runId
+  start producer in background
+  stream events to this first client
+
+GET /runs/:runId/events?after=17
+  replay events where id &gt; 17
+  keep connection open
+  send future events live</code></pre>
+
+  <h2>SSE event shape</h2>
+  <pre><code>id: 18
+event: chunk
+data: {"delta":"hello"}
+
+</code></pre>
+  <p>Use <code>id:</code> as resume cursor. With <code>EventSource</code>, browsers can send <code>Last-Event-ID</code> on reconnect; with <code>fetch()</code> streaming, store and send the cursor yourself.</p>
+
+  <h2>Rules</h2>
+  <ul>
+    <li>Do not use byte offsets for AI/UI streams. Use event IDs.</li>
+    <li>Do not cancel producer on page refresh. Treat disconnect as “no listener”, not “stop work”.</li>
+    <li>Persist event log in Redis/DB for production. Memory only works for demos and one process.</li>
+    <li>Separate stop from disconnect: explicit stop endpoint cancels producer; refresh does not.</li>
+  </ul>
+
+  <h2>Framework mapping</h2>
+  <ul>
+    <li><strong>AI SDK:</strong> POST creates stream; GET <code>/api/chat/[id]/stream</code> resumes active stream.</li>
+    <li><strong>Flue:</strong> POST sends input to an agent instance; GET exposes event streaming.</li>
+    <li><strong>OpenAI-style APIs:</strong> provider streams current request; your app must persist/replay if browser resume is required.</li>
+  </ul>
+
+  <p class="muted">Sources: <a href="https://ai-sdk.dev/docs/ai-sdk-ui/chatbot-resume-streams">AI SDK resume streams</a>, <a href="https://ai-sdk.dev/docs/troubleshooting/abort-breaks-resumable-streams">AI SDK abort troubleshooting</a>, <a href="https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events">MDN SSE</a>.</p>
+</main>
+</body>
+</html>

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lesson 0004 — Prove resume with curl</title>
+  <style>
+    :root { --ink:#111; --muted:#666; --line:#ddd; --soft:#f7f7f7; --accent:#0f766e; }
+    body { margin:0; color:var(--ink); background:white; font:17px/1.6 ui-serif, Georgia, Cambria, serif; }
+    main { max-width: 860px; margin:48px auto; padding:0 24px 80px; }
+    h1 { font-size:2.1rem; line-height:1.1; letter-spacing:-.03em; margin:0; }
+    h2 { margin-top:34px; padding-top:18px; border-top:1px solid var(--line); font-size:1.2rem; }
+    code, pre { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:.9em; }
+    pre { background:var(--soft); padding:16px; overflow:auto; border-left:4px solid var(--accent); }
+    .muted { color:var(--muted); }
+    .task { border:1px solid var(--line); border-radius:12px; padding:16px; margin:14px 0; }
+    @media print { main { margin:20px auto; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Prove resume with curl</h1>
+  <p class="muted">Before browser UI, prove the contract: disconnect, reconnect, replay missed events.</p>
+
+  <h2>What your current code has</h2>
+  <p>Your code now has the core resumable shape: <code>Run</code> owns the replay log, <code>listeners</code> are live HTTP responses, <code>POST /runs</code> starts the producer, and <code>GET /runs/1234/events?after=N</code> only attaches to the existing run.</p>
+  <p>Next win is not more architecture. Prove the behavior with curl.</p>
+
+  <h2>Test 1 — start then kill listener</h2>
+  <pre><code># terminal 1
+cd code-examples/tiny-typescript-demo
+pnpm dev
+
+# terminal 2
+curl -N -X POST http://localhost:8086/runs</code></pre>
+  <p>After event <code>3</code>, press <code>Ctrl-C</code>. That kills listener A. Producer should continue in server process.</p>
+
+  <h2>Test 2 — resume same run</h2>
+  <pre><code># terminal 2 again
+curl -N "http://localhost:8086/runs/1234/events?after=3"</code></pre>
+  <p>Expected: first replay <code>4</code>, <code>5</code>, maybe more, then continue live until <code>10</code>.</p>
+
+  <h2>Test 3 — resume after complete</h2>
+  <pre><code>curl -N "http://localhost:8086/runs/1234/events?after=6"</code></pre>
+  <p>Expected: replay <code>7..10</code>, then connection closes because <code>run.done === true</code>.</p>
+
+  <h2>Keep these shortcuts for now</h2>
+  <div class="task">
+    <p><strong>Hardcoded <code>1234</code> is fine.</strong> It makes curl testing easy. Later replace it with <code>crypto.randomUUID()</code> and send the ID to the client.</p>
+  </div>
+  <div class="task">
+    <p><strong>In-memory <code>runs</code> is fine.</strong> It proves the model. Later Redis/DB replaces it so refresh survives process restart and multiple servers.</p>
+  </div>
+
+  <h2>Retrieval check</h2>
+  <ol>
+    <li>When listener A dies, what object still owns events?</li>
+    <li>Why does GET call <code>attach</code> but not <code>startProducer</code>?</li>
+    <li>When run is done, why replay then close instead of adding listener?</li>
+  </ol>
+
+  <h2>Next</h2>
+  <p>After this passes, next lesson is browser client: store <code>lastEventId</code>, simulate refresh, call GET with <code>after=lastEventId</code>.</p>
+
+  <p class="muted">Primary source: <a href="https://ai-sdk.dev/docs/ai-sdk-ui/chatbot-resume-streams">AI SDK Resume Streams</a>. Reference: <a href="../reference/resumable-http-streams.html">cheat sheet</a>.</p>
+</main>
+</body>
+</html>

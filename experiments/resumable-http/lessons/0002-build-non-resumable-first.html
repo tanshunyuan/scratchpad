@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lesson 0002 — Build non-resumable first</title>
+  <style>
+    :root { --ink:#111; --muted:#666; --line:#ddd; --soft:#f7f7f7; --accent:#0f766e; }
+    body { margin:0; color:var(--ink); background:white; font:17px/1.6 ui-serif, Georgia, Cambria, serif; }
+    main { max-width: 840px; margin: 48px auto; padding: 0 24px 80px; }
+    h1 { font-size:2.15rem; line-height:1.1; letter-spacing:-.03em; margin:0; }
+    h2 { margin-top:34px; padding-top:18px; border-top:1px solid var(--line); font-size:1.2rem; }
+    code, pre { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:.9em; }
+    pre { background:var(--soft); padding:16px; overflow:auto; border-left:4px solid var(--accent); }
+    .muted { color:var(--muted); }
+    .task { border:1px solid var(--line); border-radius:12px; padding:16px; margin:14px 0; }
+    kbd { border:1px solid var(--line); border-bottom-width:2px; border-radius:5px; padding:1px 5px; font-family:ui-monospace, monospace; }
+    @media print { main { margin:20px auto; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Build non-resumable first</h1>
+  <p class="muted">Your repo is empty enough. Good. Next: prove plain streaming before resume.</p>
+
+  <h2>Goal</h2>
+  <p>In <code>code-examples/tiny-typescript-demo/index.ts</code>, build one endpoint:</p>
+  <pre><code>GET /stream
+→ sends 10 server-sent events
+→ one event every 500ms
+→ then closes</code></pre>
+
+  <p>This teaches the wire format. Resume comes after you can see plain stream bytes.</p>
+
+  <h2>Rules</h2>
+  <ul>
+    <li>Use Node built-in <code>node:http</code>. No Express. No framework yet.</li>
+    <li>Use SSE framing: <code>id:</code> line, <code>data:</code> line, blank line.</li>
+    <li>Use <code>env.PORT</code> from your existing <code>env.ts</code>.</li>
+    <li>Keep it under ~70 lines.</li>
+  </ul>
+
+  <h2>Shape to aim for</h2>
+  <pre><code>import http from "node:http";
+import { env } from "./env.ts";
+
+const server = http.createServer(async (req, res) =&gt; {
+  if (req.url !== "/stream") {
+    res.writeHead(404).end("not found\n");
+    return;
+  }
+
+  res.writeHead(200, {
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+  });
+
+  // your loop here
+});
+
+server.listen(env.PORT, env.HOST, () =&gt; {
+  console.log(`http://${env.HOST}:${env.PORT}`);
+});</code></pre>
+
+  <h2>Self-check</h2>
+  <div class="task">
+    <p>Run server:</p>
+    <pre><code>cd code-examples/tiny-typescript-demo
+pnpm dev</code></pre>
+    <p>In another terminal:</p>
+    <pre><code>curl -N http://localhost:8086/stream</code></pre>
+    <p>Expected rhythm: one event appears every half second:</p>
+    <pre><code>id: 1
+data: {"delta":"token-1"}
+
+id: 2
+data: {"delta":"token-2"}</code></pre>
+  </div>
+
+  <h2>Before moving on, answer from memory</h2>
+  <ol>
+    <li>Why is there a blank line after each event?</li>
+    <li>Where will the resume cursor live later?</li>
+    <li>If <code>curl</code> disconnects, should this first version keep producing?</li>
+  </ol>
+
+  <h2>Next lesson unlock</h2>
+  <p>When this works, tell me: <strong>“non-resumable stream works”</strong>. Then we add <code>POST /runs</code>, <code>GET /runs/:id/events?after=N</code>, and an in-memory event log.</p>
+
+  <p class="muted">Primary source: <a href="https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events">MDN Server-Sent Events</a>. Reference: <a href="../reference/resumable-http-streams.html">Resumable HTTP Streams cheat sheet</a>.</p>
+</main>
+</body>
+</html>
